@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+# Core MCU features
+CONFIG_ARM_MPU=y
+CONFIG_HW_STACK_PROTECTION=y
+
+# Link application to zephyr,code-partition (0x0800C000 — after TYT bootloader)
+CONFIG_USE_DT_CODE_PARTITION=y
+
+# GPIO — required for LED blink and all I/O
+CONFIG_GPIO=y
+
+# SPI NOR flash — SFDP runtime discovery; no jedec-id/size needed in DTS
+CONFIG_FLASH=y
+CONFIG_SPI_NOR=y
+CONFIG_SPI_NOR_SFDP_RUNTIME=y

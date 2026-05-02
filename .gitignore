@@ -1,0 +1,17 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Zephyr west workspace
+.west/
+
+# Python
+*.pyc
+__pycache__/
+
+# IDE
+.vscode/
+
+# Build outputs
+build/

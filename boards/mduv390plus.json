@@ -1,0 +1,26 @@
+{
+  "build": {
+    "core": "stm32",
+    "cpu": "cortex-m4",
+    "f_cpu": "72000000L",
+    "mcu": "stm32f405vgt6",
+    "zephyr": {
+      "board": "mduv390plus"
+    }
+  },
+  "connectivity": [],
+  "debug": {
+    "jlink_device": "STM32F405VG",
+    "svd_path": "STM32F405.svd",
+    "tools": {}
+  },
+  "frameworks": ["zephyr"],
+  "name": "TYT MD-UV390 PLUS 10W GPS",
+  "upload": {
+    "maximum_ram_size": 196608,
+    "maximum_size": 1048576,
+    "protocol": "custom"
+  },
+  "url": "https://www.tyt888.com/pro_info149.html",
+  "vendor": "TYT"
+}

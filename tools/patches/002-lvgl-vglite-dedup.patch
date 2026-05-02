@@ -1,0 +1,24 @@
+From: Andrew Yong <me@ndoo.sg>
+Subject: [PATCH] modules/lvgl: remove duplicate vg_lite_matrix.c source
+
+CMakeLists.txt unconditionally lists both
+  src/debugging/vg_lite_tvg/vg_lite_matrix.c
+and
+  src/libs/vg_lite_driver/VGLite/vg_lite_matrix.c
+Both compile to the same output basename, causing a duplicate-source
+build error. Remove the debugging copy; the libs copy is canonical.
+---
+ modules/lvgl/CMakeLists.txt | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/modules/lvgl/CMakeLists.txt b/modules/lvgl/CMakeLists.txt
+index aaaaaaa..bbbbbbb 100644
+--- a/modules/lvgl/CMakeLists.txt
++++ b/modules/lvgl/CMakeLists.txt
+@@ -43,7 +43,6 @@ zephyr_library()
+     ${LVGL_DIR}/src/debugging/test/lv_test_indev.c
+     ${LVGL_DIR}/src/debugging/test/lv_test_indev_gesture.c
+     ${LVGL_DIR}/src/debugging/test/lv_test_screenshot_compare.c
+-    ${LVGL_DIR}/src/debugging/vg_lite_tvg/vg_lite_matrix.c
+
+     ${LVGL_DIR}/src/display/lv_display.c

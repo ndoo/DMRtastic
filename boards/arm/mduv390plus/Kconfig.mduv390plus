@@ -1,0 +1,8 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+config BOARD_MDUV390PLUS
+	select SOC_STM32F405XX
+	help
+	  TYT MD-UV390 PLUS 10W GPS dual-band DMR radio (STM32F405VGT6).
+	  Uses a proprietary TYT DFU bootloader; flash with tools/flash_tyt_dfu.py.
