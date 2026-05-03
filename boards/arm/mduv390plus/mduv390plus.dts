@@ -131,7 +131,9 @@
 	};
 
 	hr_c6000_spi: spi {
-		compatible = "zephyr,spi-bitbang";
+		/* IRQ-safe SPI: the HR-C6000 driver issues spi_transceive() from interrupt context (DMR timeslot state
+		 * machine), but upstream zephyr,spi-bitbang acquires a k_sem and isn't ISR-callable; this uses k_spinlock_t instead. */
+		compatible = "ht-radio,spi-bitbang-irq";
 		status = "okay";
 		#address-cells = <1>;
 		#size-cells    = <0>;

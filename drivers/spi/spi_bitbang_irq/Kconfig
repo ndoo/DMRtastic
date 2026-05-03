@@ -3,7 +3,7 @@
 
 config SPI_BITBANG_IRQ
 	bool "IRQ-safe GPIO SPI bit-bang bus controller"
-	default n
+	default y
 	depends on DT_HAS_HT_RADIO_SPI_BITBANG_IRQ_ENABLED
 	depends on SPI && GPIO
 	help
