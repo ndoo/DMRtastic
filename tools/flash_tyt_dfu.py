@@ -142,25 +142,27 @@ def _open_device():
 
 def _get_status():
     resp = _dev.ctrl_transfer(0xA1, _DFU_GETSTATUS, 0, _INTF, 6, _TIMEOUT)
-    return resp[4]  # bState
+    poll_ms = resp[1] | (resp[2] << 8) | (resp[3] << 16)
+    return resp[4], poll_ms  # bState, bwPollTimeout in ms
 
 
 def _wait_idle():
-    for _ in range(50):
-        state = _get_status()
+    for _ in range(100):
+        state, _ = _get_status()
         if state == _STATE_DFU_DNLOAD_IDLE:
             return
         if state == _STATE_DFU_ERROR:
             _dev.ctrl_transfer(0x21, _DFU_CLRSTATUS, 0, _INTF, None, _TIMEOUT)
             raise RuntimeError('DFU device entered error state')
-        time.sleep(0.05)
+        time.sleep(0.01)
     raise RuntimeError('Timed out waiting for DFU idle state')
 
 
 def _dnload(block_num, data):
     _dev.ctrl_transfer(0x21, _DFU_DNLOAD, block_num, _INTF, data, _TIMEOUT)
-    _get_status()  # moves state machine
-    time.sleep(0.05)
+    _, poll_ms = _get_status()  # moves state machine; bootloader reports how long to wait
+    if poll_ms > 0:
+        time.sleep(poll_ms / 1000)
     _wait_idle()
 
 
