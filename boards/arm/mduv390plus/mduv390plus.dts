@@ -141,13 +141,15 @@
 		cs-gpios   = <&gpioe 2 GPIO_ACTIVE_LOW>;
 
 		hr_c6000: hr_c6000@0 {
-			compatible = "radio,hr-c6000";
+			compatible = "hongrui,hr-c6000";
 			reg = <0>;
 			spi-max-frequency = <1000000>;
-			pwd-gpios      = <&gpioe 6 GPIO_ACTIVE_LOW>;
-			ts-int-gpios   = <&gpioc 0 GPIO_ACTIVE_LOW>;
-			sys-int-gpios  = <&gpioc 1 GPIO_ACTIVE_LOW>;
-			rftx-int-gpios = <&gpioc 2 GPIO_ACTIVE_LOW>;
+			power-down-gpios   = <&gpioe 6 GPIO_ACTIVE_LOW>;
+			/* Three HR-C6000 interrupt outputs; edge type (rising) is set at runtime via
+			 * gpio_pin_interrupt_configure_dt() -- only active-level polarity belongs in these DT cell flags. */
+			timeslot-int-gpios = <&gpioc 0 GPIO_ACTIVE_HIGH>;
+			sys-int-gpios      = <&gpioc 1 GPIO_ACTIVE_HIGH>;
+			rftx-int-gpios     = <&gpioc 2 GPIO_ACTIVE_HIGH>;
 		};
 	};
 
@@ -268,7 +270,7 @@ zephyr_udc0: &usbotg_fs {
 	status = "okay";
 
 	at1846s: at1846s@2e {
-		compatible = "aiwaves,at1846s";
+		compatible = "auctus,at1846s";
 		reg = <0x2e>;
 		freq-ranges = <134000000 174000000  400000000 520000000>;
 		band-select-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>,

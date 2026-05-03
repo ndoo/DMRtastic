@@ -1,0 +1,6 @@
+name: at1846s
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

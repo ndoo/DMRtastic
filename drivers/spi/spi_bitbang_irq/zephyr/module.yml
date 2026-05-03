@@ -1,0 +1,6 @@
+name: spi_bitbang_irq
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

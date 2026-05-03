@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+description: |
+  Hongrui HR-C6000 DMR/FM baseband SoC. SPI child device with a paged
+  register space (control bus). Voice (AMBE) frames are transferred over
+  a separate hardware SPI bus referenced by the audio-spi-dev phandle.
+
+compatible: "hongrui,hr-c6000"
+
+include: [spi-device.yaml]
+
+properties:
+  power-down-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      Active-low chip power-down control. Drive low to power on, high to
+      power down. Polarity is captured via GPIO_ACTIVE_LOW on the cell.
+
+  timeslot-int-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      TIME_SLOT_INTER output. Pulses at every 30 ms DMR timeslot boundary.
+      Configure the cell flags as edge-triggered.
+
+  sys-int-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      SYS_INTER output. Fires on TX start / TX end / received data /
+      error events. Configure the cell flags as edge-triggered.
+
+  rftx-int-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      RF_TX_INTER output. Signals the MCU to enable the RF PA at the
+      start of a TX burst. Configure the cell flags as edge-triggered.
+
+  audio-spi-dev:
+    type: phandle
+    description: |
+      phandle to the companion SPI device on the hardware SPI audio bus,
+      used for AMBE vocoder frame transfers. Optional in builds that do
+      not yet wire the audio bus; required for any DMR audio.
+
+  if-frequency-hz:
+    type: int
+    default: 450000
+    description: |
+      IF frequency presented to the HR-C6000 ADC by the companion RF
+      transceiver. Programs internal IF demodulator coefficients.
+
+  rf-recv-mode:
+    type: string
+    default: "if"
+    enum:
+      - "if"
+      - "iq"
+    description: |
+      Analog receive path presented to the HR-C6000 ADC. "if" for an IF
+      input from a companion superhet; "iq" for I/Q baseband.
+
+  swap-iq-adc:
+    type: boolean
+    description: Swap ADC I/Q channels (chip RFRecvIQMode bit).
+
+  swap-iq-dac:
+    type: boolean
+    description: Swap DAC I/Q channels (chip RFTransIQMode bit).

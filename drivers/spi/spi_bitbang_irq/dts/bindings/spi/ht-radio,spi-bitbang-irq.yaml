@@ -1,0 +1,34 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+description: |
+  IRQ-safe GPIO SPI bit-bang bus controller.
+
+  Drop-in replacement for zephyr,spi-bitbang where the SPI bus must be
+  driven from interrupt context. Internally uses k_spinlock instead of
+  k_sem so that spi_transceive() can be called from both thread and ISR
+  contexts.
+
+  Property names match zephyr,spi-bitbang exactly so switching back
+  requires only a compatible-string change.
+
+compatible: "ht-radio,spi-bitbang-irq"
+
+include: [spi-controller.yaml]
+
+bus: spi
+
+properties:
+  clk-gpios:
+    type: phandle-array
+    required: true
+    description: SPI clock GPIO.
+
+  mosi-gpios:
+    type: phandle-array
+    required: true
+    description: SPI MOSI GPIO.
+
+  miso-gpios:
+    type: phandle-array
+    description: SPI MISO GPIO. Optional for write-only buses.

@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+description: |
+  Board-level handheld-transceiver radio orchestrator. Ties together one
+  RF transceiver, an optional baseband modem, and the discrete GPIOs and
+  DAC channels for PA, LNA, audio amplifier, microphone power, and
+  speaker mute. Used by the radio manager subsystem.
+
+compatible: "ht,radio"
+
+properties:
+  transceiver:
+    type: phandle
+    required: true
+    description: phandle to the RF transceiver device node (e.g. AT1846S).
+
+  baseband:
+    type: phandle
+    description: |
+      phandle to the baseband modem device node (e.g. HR-C6000). Omit on
+      FM-only radios that use the transceiver standalone.
+
+  vhf-lna-gpios:
+    type: phandle-array
+    description: VHF receive LNA path enable. Asserted during VHF RX only.
+
+  uhf-lna-gpios:
+    type: phandle-array
+    description: UHF receive LNA path enable. Asserted during UHF RX only.
+
+  pa-enable-1-gpios:
+    type: phandle-array
+    description: PA stage 1 enable.
+
+  pa-enable-2-gpios:
+    type: phandle-array
+    description: PA stage 2 / APC enable.
+
+  pa-band-select-gpios:
+    type: phandle-array
+    description: |
+      PA band select. Cell flags determine the active polarity. Omit on
+      single-band radios.
+
+  mic-power-gpios:
+    type: phandle-array
+    description: Microphone bias power switch.
+
+  audio-amp-enable-gpios:
+    type: phandle-array
+    description: Speaker amplifier enable.
+
+  speaker-mute-gpios:
+    type: phandle-array
+    description: |
+      Speaker mute (separate from amp enable). The cell's polarity flag
+      determines the active state.
+
+  tx-freq-offset-narrow-hz:
+    type: int
+    default: 0
+    description: |
+      TX frequency offset applied for 12.5 kHz channel spacing to
+      compensate systematic VCO pull.
+
+  tx-freq-offset-wide-hz:
+    type: int
+    default: 0
+    description: |
+      TX frequency offset applied for 25 kHz channel spacing.
+
+  tx-power-dac:
+    type: phandle-array
+    description: |
+      DAC channel used for TX power control. Some boards use the same
+      DAC channel for VHF RX band tuning at idle; the radio manager
+      switches the value at TX/RX transitions.
+
+  rx-vhf-tuning-dac:
+    type: phandle-array
+    description: |
+      Optional separate DAC channel for VHF RX band tuning. Omit if the
+      same channel as tx-power-dac is reused.

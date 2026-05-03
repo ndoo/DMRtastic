@@ -1,0 +1,40 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+config RADIO_AT1846S
+	bool "AT1846S RF transceiver driver"
+	default n
+	depends on DT_HAS_AUCTUS_AT1846S_ENABLED
+	depends on I2C
+	select I2C_BUS_RECOVERY
+	help
+	  Enable the driver for the Auctus AT1846S single-chip RF
+	  transceiver. The driver exposes the radio_trx_api function-pointer
+	  table and operates over an I2C bus described in the device tree.
+	  i2c_recover_bus() is invoked at init; on STM32 this also pulls in
+	  the STM32-specific bus recovery support.
+
+if RADIO_AT1846S
+
+config RADIO_AT1846S_REGISTER_CACHE
+	bool "Register write cache"
+	default y
+	help
+	  Suppress redundant 16-bit register writes by caching the last
+	  written value per (register, bank). Disable to force every write
+	  to hit the bus, e.g. for bring-up debugging.
+
+config RADIO_AT1846S_INIT_PRIORITY
+	int "Driver init priority"
+	default 80
+	range 50 89
+	help
+	  POST_KERNEL init priority. Must run after the I2C bus controller
+	  (default 70 on Zephyr) and after GPIO (40), and before any
+	  consumer that calls into the transceiver.
+
+module = RADIO_AT1846S
+module-str = at1846s
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # RADIO_AT1846S

@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+description: |
+  Auctus AT1846S single-chip RF transceiver (I2C).
+
+compatible: "auctus,at1846s"
+
+include: [i2c-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  freq-ranges:
+    type: array
+    description: |
+      Pairs of (low, high) frequencies in Hz that this transceiver supports.
+      Each pair defines one band. Used by the driver to validate
+      set_frequency() calls and by the radio manager to derive band
+      switching. A typical dual-band MD-UV390 PLUS configuration is:
+      <134000000 174000000  400000000 520000000>.
+
+  band-select-gpios:
+    type: phandle-array
+    description: |
+      Optional GPIOs driven HIGH for one band, LOW for the other (and vice
+      versa for the second pin) to switch the external front-end band path.
+      The driver activates the appropriate pattern at set_frequency() time.
+
+  rx-audio-mux-gpios:
+    type: phandle-array
+    description: |
+      Optional GPIO controlling the FM/digital audio mux. HIGH = AT1846S
+      analog FM demodulator output routed to the speaker amp; LOW = digital
+      baseband audio path. Asserted by the driver on entry to FM RX mode.
+
+  amp-en-gpios:
+    type: phandle-array
+    description: Optional speaker amplifier enable. Asserted on FM RX entry.
+
+  spk-mute-gpios:
+    type: phandle-array
+    description: |
+      Optional speaker mute. Polarity is captured via GPIO_ACTIVE_HIGH /
+      GPIO_ACTIVE_LOW on the cell; gpio_pin_set_dt(spec, 0) always means
+      "unmuted" and gpio_pin_set_dt(spec, 1) means "muted".
+
+  squelch-gpios:
+    type: phandle-array
+    description: |
+      Optional AT1846S GPIO6 output. Goes high when the chip's squelch
+      opens (signal above threshold). Wire to an interrupt-capable MCU pin
+      for low-latency squelch notification; otherwise the radio manager
+      polls RSSI on a timer.
+
+  css-detect-gpios:
+    type: phandle-array
+    description: |
+      Optional AT1846S GPIO1 output. Goes high when CTCSS/DCS conditions
+      are met. Wire to an interrupt-capable MCU pin for low-latency CSS
+      notification; otherwise the driver polls register 0x1C.
+
+  baseband-handles-deemphasis:
+    type: boolean
+    description: |
+      Set when a companion baseband IC performs FM de-emphasis. Causes the
+      driver to disable the AT1846S internal de-emphasis filter.
+
+  baseband-handles-ctcss-dcs:
+    type: boolean
+    description: |
+      Set when a companion baseband IC handles CTCSS/DCS encode/decode.
+      Causes the driver's CTCSS/DCS API to become no-ops.
+
+  squelch-mode:
+    type: string
+    enum: ["hardware", "software"]
+    default: "software"
+    description: |
+      hardware: chip register SQ_THRESH gates audio internally;
+      GPIO6 mirrors status. Lower MCU overhead.
+      software: SQ_THRESH=0 (monitor mode); the radio manager polls RSSI
+      and applies hysteresis externally. Allows combined CSS + RSSI gating
+      in one place. Overridable at runtime.
+
+  tx-freq-offset-hz:
+    type: int
+    default: 0
+    description: |
+      Fixed TX frequency offset applied by the driver to compensate
+      systematic VCO pull. Default 0; some boards need a few kHz.

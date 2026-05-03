@@ -1,0 +1,27 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+config SPI_BITBANG_IRQ
+	bool "IRQ-safe GPIO SPI bit-bang bus controller"
+	default n
+	depends on DT_HAS_HT_RADIO_SPI_BITBANG_IRQ_ENABLED
+	depends on SPI && GPIO
+	help
+	  Drop-in replacement for zephyr,spi-bitbang that uses k_spinlock
+	  instead of k_sem internally so that spi_transceive() can be
+	  called from interrupt context. Property names match the upstream
+	  binding exactly; switching back requires only a compatible
+	  string change in the device tree.
+
+if SPI_BITBANG_IRQ
+
+config SPI_BITBANG_IRQ_INIT_PRIORITY
+	int "Bus init priority"
+	default 70
+	range 50 89
+
+module = SPI_BITBANG_IRQ
+module-str = spi_bitbang_irq
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # SPI_BITBANG_IRQ

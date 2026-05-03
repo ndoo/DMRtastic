@@ -1,0 +1,30 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+config RADIO_HR_C6000
+	bool "HR-C6000 DMR baseband driver"
+	default n
+	depends on DT_HAS_HONGRUI_HR_C6000_ENABLED
+	depends on SPI && GPIO
+	help
+	  Enable the driver for the Hongrui HR-C6000 DMR/FM baseband SoC.
+	  The driver exposes the radio_bb_api function-pointer table and
+	  drives both a control SPI bus (paged register space) and an
+	  optional audio SPI bus for AMBE vocoder frame transfers.
+
+if RADIO_HR_C6000
+
+config RADIO_HR_C6000_INIT_PRIORITY
+	int "Driver init priority"
+	default 81
+	range 50 89
+	help
+	  POST_KERNEL init priority. Must run after the SPI bus controller
+	  and after the AT1846S transceiver (default 80) so the radio
+	  manager finds both drivers ready.
+
+module = RADIO_HR_C6000
+module-str = hr_c6000
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # RADIO_HR_C6000
