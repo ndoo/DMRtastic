@@ -104,6 +104,8 @@ struct radio_trx_api {
 
 	int (*write_raw)(const struct device *dev,
 			 uint8_t reg, uint8_t hi, uint8_t lo);
+	int (*read_raw)(const struct device *dev,
+			uint8_t reg, uint8_t *hi, uint8_t *lo);
 };
 
 #ifdef __cplusplus

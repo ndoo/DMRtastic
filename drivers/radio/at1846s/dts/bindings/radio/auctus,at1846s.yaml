@@ -78,11 +78,14 @@ properties:
     enum: ["hardware", "software"]
     default: "software"
     description: |
-      hardware: chip register SQ_THRESH gates audio internally;
-      GPIO6 mirrors status. Lower MCU overhead.
-      software: SQ_THRESH=0 (monitor mode); the radio manager polls RSSI
-      and applies hysteresis externally. Allows combined CSS + RSSI gating
-      in one place. Overridable at runtime.
+      hardware: chip register SQ_THRESH gates audio internally; GPIO6
+      mirrors squelch state. Lower MCU overhead but no speaker-mute
+      synchronisation unless squelch-gpios is also wired.
+      software: SQ_THRESH=0 (chip in monitor mode); the driver spawns a
+      squelch thread that polls AT1846S RSSI register 0x1B every
+      RADIO_AT1846S_SQUELCH_POLL_MS ms and controls spk-mute-gpios /
+      amp-en-gpios directly. Hysteresis of 3 noise units prevents
+      squelch chatter.
 
   tx-freq-offset-hz:
     type: int

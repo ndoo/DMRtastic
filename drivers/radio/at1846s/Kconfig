@@ -3,16 +3,16 @@
 
 config RADIO_AT1846S
 	bool "AT1846S RF transceiver driver"
-	default n
+	default y
 	depends on DT_HAS_AUCTUS_AT1846S_ENABLED
 	depends on I2C
-	select I2C_BUS_RECOVERY
 	help
 	  Enable the driver for the Auctus AT1846S single-chip RF
 	  transceiver. The driver exposes the radio_trx_api function-pointer
 	  table and operates over an I2C bus described in the device tree.
-	  i2c_recover_bus() is invoked at init; on STM32 this also pulls in
-	  the STM32-specific bus recovery support.
+	  i2c_recover_bus() is invoked at init; the platform-specific bus
+	  recovery support (e.g. CONFIG_I2C_STM32_BUS_RECOVERY) must be
+	  enabled separately in the application's prj.conf.
 
 if RADIO_AT1846S
 
@@ -32,6 +32,29 @@ config RADIO_AT1846S_INIT_PRIORITY
 	  POST_KERNEL init priority. Must run after the I2C bus controller
 	  (default 70 on Zephyr) and after GPIO (40), and before any
 	  consumer that calls into the transceiver.
+
+config RADIO_AT1846S_SQUELCH_STACK_SIZE
+	int "Software squelch thread stack size"
+	default 512
+	help
+	  Stack size in bytes for the AT1846S software squelch monitoring
+	  thread. The thread polls RSSI every SQUELCH_POLL_MS milliseconds
+	  while in FM RX and gates the speaker amp based on the noise byte.
+	  Unused in hardware squelch mode (the thread exits immediately).
+
+config RADIO_AT1846S_SQUELCH_POLL_MS
+	int "Software squelch polling interval (ms)"
+	default 25
+	help
+	  How often the squelch thread reads AT1846S register 0x1B during
+	  FM RX. 25 ms gives 40 samples/s, which is fast enough to track
+	  carrier onset without significant CPU overhead.
+
+config RADIO_AT1846S_SQUELCH_PRIO
+	int "Software squelch thread priority"
+	default 10
+	help
+	  Zephyr thread priority for the AT1846S squelch monitoring thread.
 
 module = RADIO_AT1846S
 module-str = at1846s
