@@ -3,7 +3,7 @@
 
 config RADIO_HR_C6000
 	bool "HR-C6000 DMR baseband driver"
-	default n
+	default y
 	depends on DT_HAS_HONGRUI_HR_C6000_ENABLED
 	depends on SPI && GPIO
 	help

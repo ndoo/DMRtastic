@@ -4,7 +4,7 @@ Open-source [Zephyr RTOS](https://zephyrproject.org/) firmware for the **TYT MD-
 
 ## Status
 
-Early bring-up. USB serial logging, the display driver, and the watchdog are working. All hardware peripherals are mapped in the device tree; application-level drivers for audio, RF, storage, and GPS are not yet implemented.
+Early bring-up. USB serial logging, the display driver, and the watchdog are working. In-repo drivers for the AT1846S transceiver and HR-C6000 baseband codec are implemented; FM RX audio (AT1846S → HR-C6000 → speaker) is end-to-end functional. Storage, GPS, and DMR baseband (TX path, AMBE codec, synchronisation) are not yet implemented.
 
 ## Hardware
 
@@ -36,8 +36,8 @@ Early bring-up. USB serial logging, the display driver, and the watchdog are wor
 | Codeplug flash | SPI1 (W25Q128) | 🔧 | `jedec,spi-nor` driver upstream; 4.5 MB/s |
 | Voice-prompt flash | SPI2 (W25Q) | 🔧 | `jedec,spi-nor` upstream; SPI Mode 2 |
 | RTC | LSE 32.768 kHz | 🔧 | `stm32_rtc` driver upstream |
-| AT1846S RF transceiver | I2C3 | 🔲 | No upstream driver; band select, audio mux, PA control GPIOs mapped |
-| HR_C6000 DMR baseband | SPI (bitbang) | 🔲 | No upstream driver; TS/SYS/RFTX interrupt lines mapped |
+| AT1846S RF transceiver | I2C3 | ✅ | In-repo driver (`drivers/radio/at1846s/`); FM RX functional; DCS squelch stub pending |
+| HR_C6000 DMR baseband | SPI (bitbang-IRQ) | ✅ | In-repo driver (`drivers/radio/hr_c6000/`); FM RX audio path functional; DMR state machine pending |
 | Beeper | GPIO/PWM (PC8) | 🔲 | |
 | Microphone | PA13 power enable | 🔲 | |
 
@@ -67,6 +67,24 @@ pio run -e mduv390plus --target upload
 |---|---|---|---|
 | HX8353E display driver | [zephyrproject-rtos/zephyr#108055](https://github.com/zephyrproject-rtos/zephyr/pull/108055) | Pending review | `drivers/hx8353e/` — will be removed once merged |
 | `gpio_qdec`: add `invert-direction` property | [zephyrproject-rtos/zephyr#108010](https://github.com/zephyrproject-rtos/zephyr/pull/108010) | Pending review | Not yet implemented — planned post-merge |
+
+## Design Notes
+
+Rationale that used to live as long inline comments, moved here to keep the
+source terse. Each subsection maps to the file(s) it explains.
+
+### HR-C6000 SPI framing (`drivers/radio/hr_c6000/`)
+
+The SPI control bus protocol is a 3-byte transaction `{ page, reg, value }`
+with CS asserted across all three bytes. Bursts append more value bytes
+after `{ page, reg }` and the chip auto-increments `reg`.
+
+### SPI bit-bang timing (`drivers/spi/spi_bitbang_irq/`)
+
+Bus speed is set entirely by GPIO toggle overhead; the `frequency` field of
+`spi_config` is ignored. On a 72 MHz Cortex-M4 with the STM32 GPIO driver
+this comes out to roughly 4 MHz per bit, well within the HR-C6000 SPI
+maximum.
 
 ## License
 

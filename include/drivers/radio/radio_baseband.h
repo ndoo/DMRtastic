@@ -2,13 +2,9 @@
  * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
  * SPDX-License-Identifier: MIT
  *
- * Generic DMR/FM baseband modem driver API. The driver-specific
- * implementation (e.g. HR-C6000) populates a const struct radio_bb_api
- * and publishes it as the device's api pointer.
- *
- * All callbacks fire from interrupt context; receivers must keep work
- * short and non-blocking. The driver itself owns all DMR timing and
- * runs the slot state machine internally.
+ * Generic DMR/FM baseband modem driver API; a driver (e.g. HR-C6000)
+ * populates a const struct radio_bb_api as the device's api pointer.
+ * Callbacks fire from interrupt context — keep receivers short.
  */
 
 #ifndef DMRTASTIC_DRIVERS_RADIO_RADIO_BASEBAND_H_
@@ -85,7 +81,9 @@ struct radio_bb_api {
 	int (*set_dmr)(const struct device *dev,
 		       const struct radio_bb_dmr_cfg *cfg);
 
+	/** Enter DMR digital mode (bring up the slot state machine). */
 	int (*init_digital)(const struct device *dev);
+	/** Leave DMR digital mode. */
 	int (*terminate_digital)(const struct device *dev);
 
 	int (*set_audio_path)(const struct device *dev, bool fm_feedthrough);
@@ -93,15 +91,19 @@ struct radio_bb_api {
 	int (*mute_audio)(const struct device *dev, bool mute);
 
 	int (*send_tone)(const struct device *dev, uint32_t freq_hz);
+	/** Key a single DTMF digit (0-9, A-D, *, #) by its ASCII code. */
 	int (*set_dtmf)(const struct device *dev, uint8_t code);
+	/** Stop the current DTMF tone, optionally re-enabling the mic. */
 	int (*dtmf_off)(const struct device *dev, bool enable_mic);
 
 	int (*get_rx_ids)(const struct device *dev,
 			  uint32_t *tg_id, uint32_t *src_id);
 	int (*get_rx_color_code)(const struct device *dev, uint8_t *cc);
 	int (*clear_rx_ids)(const struct device *dev);
+	/** Reset DMR sync/CC-hold state after a dropped or corrupt frame. */
 	int (*reset_sync)(const struct device *dev);
 
+	/** Set the outgoing (TX) talkgroup/source IDs, as opposed to get_rx_ids(). */
 	int (*set_dmr_ids)(const struct device *dev,
 			   uint32_t tg_id, uint32_t src_id);
 	int (*set_talker_alias)(const struct device *dev, const char *text);
@@ -111,6 +113,7 @@ struct radio_bb_api {
 	int (*set_rx_gain)(const struct device *dev, int8_t gain);
 	int (*set_agc_gain)(const struct device *dev, int8_t gain);
 
+	/** Push one 27-byte AMBE frame into the TX audio bus. */
 	int (*inject_ambe_frame)(const struct device *dev, const uint8_t *frame);
 	int (*flush_audio)(const struct device *dev);
 
@@ -122,6 +125,11 @@ struct radio_bb_api {
 				  const struct radio_bb_callbacks *cbs);
 
 	int (*power_down)(const struct device *dev, bool down);
+
+	int (*write_raw)(const struct device *dev,
+			 uint8_t page, uint8_t reg, uint8_t val);
+	int (*read_raw)(const struct device *dev,
+			uint8_t page, uint8_t reg, uint8_t *val);
 };
 
 #ifdef __cplusplus

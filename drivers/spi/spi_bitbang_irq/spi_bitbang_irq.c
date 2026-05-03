@@ -2,27 +2,9 @@
  * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
  * SPDX-License-Identifier: MIT
  *
- * IRQ-safe GPIO SPI bit-bang bus controller.
- *
- * Drop-in replacement for zephyr,spi-bitbang where the SPI bus must be
- * driven from interrupt context. Uses k_spinlock_t for bus protection
- * instead of spi_context's k_sem so spi_transceive() can be called from
- * both thread and ISR.
- *
- * Scope:
- *  - Master only.
- *  - 8-bit word size, full duplex.
- *  - CS GPIO comes from the caller's spi_dt_spec (config->cs.gpio).
- *  - SPI mode 0/1/2/3 supported via config->operation flags.
- *  - LSB-first toggle supported.
- *  - SPI_HOLD_ON_CS / SPI_LOCK_ON not supported (transactions complete
- *    atomically while the spinlock is held; deferred releases are not
- *    a meaningful concept under a spinlock).
- *
- * Bus speed is set entirely by GPIO toggle overhead; the frequency
- * field of spi_config is ignored. On a 72 MHz Cortex-M4 with the
- * STM32 GPIO driver this comes out to roughly 4 MHz per bit, well
- * within the HR-C6000 SPI maximum.
+ * IRQ-safe GPIO SPI bit-bang bus controller: like zephyr,spi-bitbang but
+ * spinlock-protected (not spi_context's k_sem) so it works from ISR context.
+ * Master-only, 8-bit words; SPI_HOLD_ON_CS/SPI_LOCK_ON unsupported.
  */
 
 #define DT_DRV_COMPAT ht_radio_spi_bitbang_irq
@@ -36,16 +18,22 @@
 
 LOG_MODULE_REGISTER(spi_bitbang_irq, CONFIG_SPI_BITBANG_IRQ_LOG_LEVEL);
 
+/* Max chip-select GPIOs configured at init; grow if a bus needs more. */
+#define SPI_BITBANG_IRQ_MAX_CS 4
+
 struct spi_bitbang_irq_config {
 	struct gpio_dt_spec clk_gpio;
 	struct gpio_dt_spec mosi_gpio;
 	struct gpio_dt_spec miso_gpio;
+	struct gpio_dt_spec cs_gpios[SPI_BITBANG_IRQ_MAX_CS];
+	uint8_t             cs_count;
 };
 
 struct spi_bitbang_irq_data {
 	struct k_spinlock bus_lock;
 };
 
+/** Clock out/in one byte bit-by-bit per the given CPOL/CPHA/bit-order. */
 static int spi_bitbang_irq_xfer_byte(const struct spi_bitbang_irq_config *cfg,
 				     uint8_t out, bool cpol, bool cpha,
 				     bool lsb_first, bool have_miso,
@@ -86,6 +74,7 @@ static int spi_bitbang_irq_xfer_byte(const struct spi_bitbang_irq_config *cfg,
 	return 0;
 }
 
+/** SPI transceive under a spinlock (not spi_context), so callable from ISR context. */
 static int spi_bitbang_irq_transceive(const struct device *dev,
 				      const struct spi_config *spi_cfg,
 				      const struct spi_buf_set *tx_bufs,
@@ -180,6 +169,7 @@ static DEVICE_API(spi, spi_bitbang_irq_api) = {
 	.release    = spi_bitbang_irq_release,
 };
 
+/** Configure clk/mosi/miso and all declared CS lines as GPIOs. */
 static int spi_bitbang_irq_init(const struct device *dev)
 {
 	const struct spi_bitbang_irq_config *cfg = dev->config;
@@ -215,15 +205,50 @@ static int spi_bitbang_irq_init(const struct device *dev)
 		}
 	}
 
+	/* No spi_context here (its k_sem is ISR-incompatible), so the
+	 * driver configures each CS line as an inactive output directly. */
+	for (uint8_t i = 0; i < cfg->cs_count; i++) {
+		const struct gpio_dt_spec *cs = &cfg->cs_gpios[i];
+
+		if (cs->port == NULL) {
+			continue;
+		}
+		if (!gpio_is_ready_dt(cs)) {
+			LOG_ERR("cs%d gpio not ready", i);
+			return -ENODEV;
+		}
+		rc = gpio_pin_configure_dt(cs, GPIO_OUTPUT_INACTIVE);
+		if (rc < 0) {
+			LOG_ERR("cs%d configure failed (%d)", i, rc);
+			return rc;
+		}
+	}
+
 	return 0;
 }
 
+#define SPI_BITBANG_IRQ_CS_OR(inst, i) \
+	COND_CODE_1(DT_INST_PROP_HAS_IDX(inst, cs_gpios, i), \
+		    (GPIO_DT_SPEC_INST_GET_BY_IDX(inst, cs_gpios, i)), \
+		    ({0}))
+
 #define SPI_BITBANG_IRQ_INIT(inst)						\
+	BUILD_ASSERT(DT_INST_PROP_LEN_OR(inst, cs_gpios, 0) <=			\
+		     SPI_BITBANG_IRQ_MAX_CS,					\
+		     "ht-radio,spi-bitbang-irq supports up to "			\
+		     "SPI_BITBANG_IRQ_MAX_CS chip selects");			\
 	static const struct spi_bitbang_irq_config				\
 		spi_bitbang_irq_cfg_##inst = {					\
 			.clk_gpio  = GPIO_DT_SPEC_INST_GET(inst, clk_gpios),	\
 			.mosi_gpio = GPIO_DT_SPEC_INST_GET_OR(inst, mosi_gpios, {0}),\
 			.miso_gpio = GPIO_DT_SPEC_INST_GET_OR(inst, miso_gpios, {0}),\
+			.cs_gpios = {						\
+				SPI_BITBANG_IRQ_CS_OR(inst, 0),			\
+				SPI_BITBANG_IRQ_CS_OR(inst, 1),			\
+				SPI_BITBANG_IRQ_CS_OR(inst, 2),			\
+				SPI_BITBANG_IRQ_CS_OR(inst, 3),			\
+			},							\
+			.cs_count = (uint8_t)DT_INST_PROP_LEN_OR(inst, cs_gpios, 0),\
 		};								\
 	static struct spi_bitbang_irq_data spi_bitbang_irq_data_##inst;	\
 	SPI_DEVICE_DT_INST_DEFINE(inst,						\
