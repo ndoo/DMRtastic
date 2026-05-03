@@ -9,8 +9,6 @@
 #include <drivers/radio/radio_baseband.h>
 #include <drivers/radio/radio_transceiver.h>
 
-#include "usb_cdc.h"
-
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 #define PMR446_CH1_HZ     446006250U  /* diagnostic channel */
@@ -37,13 +35,6 @@ static int radio_tune_pmr446_ch1(void)
 	trx_api = (const struct radio_trx_api *)trx->api;
 	bb_api  = (const struct radio_bb_api  *)bb->api;
 
-	/*
-	 * Audio path on the MD-UV390 PLUS goes
-	 * AT1846S FM demod → HR-C6000 codec → speaker amp.
-	 * The HR-C6000 must be in FM RX mode with feedthrough enabled
-	 * before the AT1846S enters FM RX, otherwise the codec mutes the
-	 * speaker.
-	 */
 	ret = bb_api->set_fm_rx(bb);
 	if (ret < 0) {
 		LOG_ERR("HR-C6000 set_fm_rx failed (%d)", ret);
@@ -97,18 +88,12 @@ int main(void)
 
 	LOG_INF("MAIN");
 
-	ret = usb_cdc_init();
-	if (ret != 0) {
-		LOG_ERR("USB init failed (%d)", ret);
-		return ret;
-	}
-
-	LOG_INF("Wait for DTR");
-	usb_cdc_wait_dtr();
-	LOG_INF("DTR set");
-
-	usb_cdc_flush_and_enable();
-
+	/*
+	 * Bring the radio up immediately. Other subsystems (USB CDC,
+	 * watchdog feed, future UI/input) run in their own threads and
+	 * are independent of main; if any of them stalls or panics the
+	 * radio stays receiving.
+	 */
 	ret = radio_tune_pmr446_ch1();
 	if (ret < 0) {
 		LOG_ERR("radio tune-in failed (%d)", ret);

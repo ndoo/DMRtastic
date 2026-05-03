@@ -11,56 +11,39 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_backend.h>
 #include <zephyr/logging/log_output.h>
+#include <zephyr/sys/sys_io.h>
+
+/* STM32F4 96-bit Unique Device ID (RM0090 §39.1, base 0x1FFF7A10).
+ * Encodes wafer coordinates + lot number. */
+#define STM32_UID_BASE 0x1FFF7A10U
 
 LOG_MODULE_REGISTER(usb_cdc, LOG_LEVEL_INF);
 
-/* -----------------------------------------------------------------------
- * CDC ACM UART device
- * ----------------------------------------------------------------------- */
-
 static const struct device *const uart_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
 
-/* -----------------------------------------------------------------------
- * CDC-ACM log backend — buffers to ring buf before DTR, then writes direct
- * ----------------------------------------------------------------------- */
+/* Log path is non-blocking: buffered here (drop-oldest), drained by cdc_drain_thread_fn(). */
 
-#define CDC_LOG_PRE_BUF_SIZE 2048
-RING_BUF_DECLARE(cdc_pre_ringbuf, CDC_LOG_PRE_BUF_SIZE);
-static atomic_t cdc_ready; /* 0 = buffer pre-DTR, 1 = write directly */
+#define CDC_LOG_BUF_SIZE 2048
+RING_BUF_DECLARE(cdc_log_ringbuf, CDC_LOG_BUF_SIZE);
+static atomic_t cdc_ready; /* 0 before DTR, 1 after — gates the drain thread */
 
+/** Ring-buffer log sink for the CDC backend; drops oldest bytes when full. */
 static int cdc_log_out_func(uint8_t *data, size_t length, void *ctx)
 {
 	ARG_UNUSED(ctx);
-	if (!atomic_get(&cdc_ready)) {
-		uint32_t space = ring_buf_space_get(&cdc_pre_ringbuf);
-		if (space < length) {
-			uint8_t discard[64];
-			uint32_t to_drop = length - space;
-			while (to_drop > 0) {
-				uint32_t n = MIN(to_drop, sizeof(discard));
-				ring_buf_get(&cdc_pre_ringbuf, discard, n);
-				to_drop -= n;
-			}
-		}
-		ring_buf_put(&cdc_pre_ringbuf, data, length);
-	} else {
-		for (size_t i = 0; i < length; i++) {
-			uart_poll_out(uart_dev, data[i]);
+
+	uint32_t space = ring_buf_space_get(&cdc_log_ringbuf);
+	if (space < length) {
+		uint8_t discard[64];
+		uint32_t to_drop = length - space;
+		while (to_drop > 0) {
+			uint32_t n = MIN(to_drop, sizeof(discard));
+			ring_buf_get(&cdc_log_ringbuf, discard, n);
+			to_drop -= n;
 		}
 	}
+	ring_buf_put(&cdc_log_ringbuf, data, length);
 	return (int)length;
-}
-
-static void cdc_log_playback(void)
-{
-	uint8_t buf[64];
-	uint32_t n;
-
-	while ((n = ring_buf_get(&cdc_pre_ringbuf, buf, sizeof(buf))) > 0) {
-		for (uint32_t i = 0; i < n; i++) {
-			uart_poll_out(uart_dev, buf[i]);
-		}
-	}
 }
 
 static uint8_t cdc_log_out_scratch[128];
@@ -81,10 +64,6 @@ static const struct log_backend_api cdc_backend_api = {
 
 LOG_BACKEND_DEFINE(cdc_backend, cdc_backend_api, true);
 
-/* -----------------------------------------------------------------------
- * USB device descriptors
- * ----------------------------------------------------------------------- */
-
 #define USB_VID 0x2fe3
 #define USB_PID 0x0001
 
@@ -102,9 +81,7 @@ USBD_CONFIGURATION_DEFINE(usb_fs_config,
 			  USB_SCD_SELF_POWERED,
 			  125, &fs_cfg_desc);
 
-/* -----------------------------------------------------------------------
- * USB CDC-ACM initialization
- * ----------------------------------------------------------------------- */
+/* Whole USB lifecycle runs in usb_cdc_thread_fn() so a stalled host can't block other code. */
 
 K_SEM_DEFINE(dtr_sem, 0, 1);
 
@@ -121,9 +98,19 @@ static inline void print_baudrate(const struct device *dev)
 	}
 }
 
+/** Dispatch USBD messages: VBUS enable/disable, DTR detection, line coding. */
 static void usb_msg_cb(struct usbd_context *const ctx, const struct usbd_msg *msg)
 {
-	LOG_INF("USBD message: %s", usbd_msg_type_string(msg->type));
+	if (msg->type == USBD_MSG_CDC_ACM_LINE_CODING ||
+	    msg->type == USBD_MSG_CDC_ACM_CONTROL_LINE_STATE) {
+		LOG_DBG("USBD message: %s", usbd_msg_type_string(msg->type));
+	} else {
+		LOG_INF("USBD message: %s", usbd_msg_type_string(msg->type));
+	}
+
+	if (msg->type == USBD_MSG_CDC_ACM_LINE_CODING) {
+		print_baudrate(msg->dev);
+	}
 
 	if (usbd_can_detect_vbus(ctx)) {
 		if (msg->type == USBD_MSG_VBUS_READY) {
@@ -147,12 +134,10 @@ static void usb_msg_cb(struct usbd_context *const ctx, const struct usbd_msg *ms
 		}
 	}
 
-	if (msg->type == USBD_MSG_CDC_ACM_LINE_CODING) {
-		print_baudrate(msg->dev);
-	}
 }
 
-int usb_cdc_init(void)
+/** Register descriptors/classes and enable the USBD device. */
+static int usb_cdc_init(void)
 {
 	int err;
 
@@ -218,17 +203,17 @@ int usb_cdc_init(void)
 	return 0;
 }
 
-void usb_cdc_wait_dtr(void)
+static void usb_cdc_wait_dtr(void)
 {
 	k_sem_take(&dtr_sem, K_FOREVER);
 }
 
-void usb_cdc_flush_and_enable(void)
+static void usb_cdc_flush_and_enable(void)
 {
 	int ret;
 
-	cdc_log_playback();
 	atomic_set(&cdc_ready, 1);
+	/* Drain thread now owns ring buffer → UART; just raise modem status. */
 
 	ret = uart_line_ctrl_set(uart_dev, UART_LINE_CTRL_DCD, 1);
 	if (ret) {
@@ -239,6 +224,70 @@ void usb_cdc_flush_and_enable(void)
 	if (ret) {
 		LOG_WRN("Failed to set DSR, ret code %d", ret);
 	}
-
-	k_msleep(100);
 }
+
+/** Run descriptor init, wait for DTR, then hand the UART to the drain thread. */
+static void usb_cdc_thread_fn(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	int ret = usb_cdc_init();
+	if (ret != 0) {
+		LOG_ERR("USB init failed (%d) — USB thread exiting", ret);
+		return;
+	}
+
+	LOG_INF("STM32 UID: %08x %08x %08x",
+		(unsigned int)sys_read32(STM32_UID_BASE + 0x00U),
+		(unsigned int)sys_read32(STM32_UID_BASE + 0x04U),
+		(unsigned int)sys_read32(STM32_UID_BASE + 0x08U));
+
+	usb_cdc_wait_dtr();
+	usb_cdc_flush_and_enable();
+	/* Thread exits here; the USB stack keeps running in its own worker contexts. */
+}
+
+#define USB_CDC_THREAD_STACK_SIZE 2048
+#define USB_CDC_THREAD_PRIO       7
+
+K_THREAD_DEFINE(usb_cdc_thread_id,
+		USB_CDC_THREAD_STACK_SIZE,
+		usb_cdc_thread_fn, NULL, NULL, NULL,
+		USB_CDC_THREAD_PRIO, 0, 0);
+
+/** Drain cdc_log_ringbuf to the UART once DTR is up; parks pre-DTR at 100ms. */
+static void cdc_drain_thread_fn(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	uint8_t buf[64];
+
+	while (true) {
+		if (!atomic_get(&cdc_ready)) {
+			k_msleep(100);
+			continue;
+		}
+
+		uint32_t n = ring_buf_get(&cdc_log_ringbuf, buf, sizeof(buf));
+		if (n == 0) {
+			k_msleep(10);
+			continue;
+		}
+
+		for (uint32_t i = 0; i < n; i++) {
+			uart_poll_out(uart_dev, buf[i]);
+		}
+	}
+}
+
+#define CDC_DRAIN_THREAD_STACK_SIZE 1024
+#define CDC_DRAIN_THREAD_PRIO       9
+
+K_THREAD_DEFINE(cdc_drain_thread_id,
+		CDC_DRAIN_THREAD_STACK_SIZE,
+		cdc_drain_thread_fn, NULL, NULL, NULL,
+		CDC_DRAIN_THREAD_PRIO, 0, 0);

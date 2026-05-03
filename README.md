@@ -86,6 +86,24 @@ Bus speed is set entirely by GPIO toggle overhead; the `frequency` field of
 this comes out to roughly 4 MHz per bit, well within the HR-C6000 SPI
 maximum.
 
+### USB CDC-ACM (`src/usb_cdc.c`, `src/usb_cdc.h`)
+
+USB CDC-ACM has no public API and runs entirely in its own thread. The
+whole lifecycle (descriptor registration, enumeration wait, DTR handshake,
+log-backend handover) lives in `usb_cdc_thread_fn()` so a stalled host or a
+misbehaving USB stack can't block the radio control loop, the watchdog
+feed, or the UI.
+
+Logging over USB is fully non-blocking: `cdc_log_out_func()` only writes
+into a ring buffer (drop-oldest when full); a dedicated drain thread
+(`cdc_drain_thread_fn()`) flushes it to the CDC ACM UART via
+`uart_poll_out()`, which yields via `k_msleep(1)` when the TX FIFO is full
+so the drain thread never spins. If the host stops draining, only the
+drain thread stalls — logs accumulate and the oldest are dropped, but
+everything else keeps running. Pre-DTR, the drain thread parks on a 100 ms
+poll so boot-time logs are buffered for replay once the host opens the
+port.
+
 ## License
 
 [MIT](LICENSE)
