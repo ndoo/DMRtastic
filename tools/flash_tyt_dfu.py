@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 # SPDX-License-Identifier: MIT
 """
-TYT MD-UV390 PLUS DFU flash tool.
+TYT MD-UV390 PLUS DFU flash and backup tool.
 
 The TYT proprietary bootloader (VID 0x0483, PID 0xDF11) requires two
 non-standard DFU control transfers to unlock flash writing before any
@@ -14,14 +14,20 @@ repeating cipher before writing to flash.  The caller must therefore
 XOR-encode the binary with the same cipher before sending.
 
 Protocol details:
-  - Unlock sequence: 0x91 0x01 then 0x91 0x31 via DFU_DNLOAD wValue=0
-  - Cipher: XOR key (1024 bytes, see below)
-  - Block write size: 1024 bytes, block numbers start at 2
+  - Unlock sequence: 0x91 0x01 then 0x91 0x31 via DFU_DNLOAD wValue=0 (write only)
+  - Cipher: XOR key (1024 bytes, see below); applies to writes only
+  - Block write/read size: 1024 bytes, block numbers start at 2
   - Address set via DfuSe set-address command before each segment
 
-Usage:
+Flash usage:
   python3 flash_tyt_dfu.py zephyr.bin
+  python3 flash_tyt_dfu.py --no-cdc zephyr.bin    # device already in DFU mode
   python3 flash_tyt_dfu.py --dry-run zephyr.bin   # encode only, no USB
+
+Backup usage:
+  python3 flash_tyt_dfu.py --backup backup.bin
+  python3 flash_tyt_dfu.py --backup backup.bin --no-cdc
+  python3 flash_tyt_dfu.py --backup backup.bin --start-addr 0x08000000 --length 0x100000
 """
 
 import argparse
@@ -109,10 +115,12 @@ _TIMEOUT = 5000  # ms
 _BLOCK_SIZE = 1024
 
 # DFU request codes (USB DFU 1.1 spec)
-_DFU_DNLOAD   = 1
+_DFU_DNLOAD    = 1
+_DFU_UPLOAD    = 2
 _DFU_GETSTATUS = 3
 _DFU_CLRSTATUS = 4
 _DFU_GETSTATE  = 5
+_DFU_ABORT     = 6
 
 # DFU states
 _STATE_DFU_DNLOAD_IDLE = 5
@@ -166,6 +174,17 @@ def _dnload(block_num, data):
     _wait_idle()
 
 
+def _abort():
+    """Send DFU_ABORT to return the device to dfuIDLE from any state."""
+    _dev.ctrl_transfer(0x21, _DFU_ABORT, 0, _INTF, None, _TIMEOUT)
+
+
+def _upload(block_num: int, length: int) -> bytes:
+    """Read one block from the device via DFU_UPLOAD. Returns raw flash bytes."""
+    data = _dev.ctrl_transfer(0xA1, _DFU_UPLOAD, block_num, _INTF, length, _TIMEOUT)
+    return bytes(data)
+
+
 def _send_unlock():
     """Send the two proprietary unlock commands required by the TYT bootloader.
 
@@ -199,6 +218,19 @@ def _write_progress(done: int, total: int) -> None:
     chars_now = _BAR_WIDTH * done // total
     chars_prev = _BAR_WIDTH * (done - _BLOCK_SIZE) // total
     sys.stdout.write('=' * (chars_now - chars_prev))
+    if done >= total:
+        sys.stdout.write('>]\n')
+    sys.stdout.flush()
+
+
+def _read_progress(done: int, total: int) -> None:
+    if done == 0:
+        sys.stdout.write('[')
+        sys.stdout.flush()
+        return
+    chars_now = _BAR_WIDTH * done // total
+    chars_prev = _BAR_WIDTH * (done - _BLOCK_SIZE) // total
+    sys.stdout.write('=' * max(0, chars_now - chars_prev))
     if done >= total:
         sys.stdout.write('>]\n')
     sys.stdout.flush()
@@ -352,16 +384,105 @@ def flash(bin_path: str, no_cdc: bool = False) -> None:
     usb.util.dispose_resources(_dev)
 
 
+def backup(out_path: str, start_addr: int, length: int, no_cdc: bool = False) -> None:
+    """Read flash from the TYT MD-UV390 and save to a file.
+
+    Strictly read-only: no unlock sequence, no page erase, no DFU_DNLOAD data
+    blocks.  The DfuSe set-address command (DFU_DNLOAD wValue=0, payload 0x21)
+    is a control-flow-only command that sets the address pointer without writing
+    flash.  The bootloader returns raw flash bytes during DFU_UPLOAD (no XOR).
+    """
+    if not no_cdc:
+        import usb.core
+        if usb.core.find(idVendor=_VID, idProduct=_PID) is None:
+            port = _find_cdc_port()
+            if port:
+                input('Hold PTT+SK1, then press Enter to reboot the radio...')
+                _trigger_reboot_via_cdc(port)
+            else:
+                input('Hold PTT+SK1 and power on the radio, then press Enter...')
+
+            if not _wait_for_dfu(timeout=15):
+                raise RuntimeError(
+                    'DFU device did not enumerate. '
+                    'Check USB cable and that PTT+SK1 were held at power-on.')
+        else:
+            print('DFU device already present.')
+
+    _open_device()
+
+    total_blocks = (length + _BLOCK_SIZE - 1) // _BLOCK_SIZE
+
+    # Set address pointer (DfuSe 0x21 command — does not write flash).
+    # _set_address leaves the device in dfuDNLOAD-IDLE; abort back to dfuIDLE
+    # before issuing DFU_UPLOAD commands.
+    _set_address(start_addr)
+    _abort()
+
+    result = bytearray()
+    block_num = 2  # DfuSe data blocks start at block 2
+    read_so_far = 0
+    print(f'Reading {length >> 10} kB ({total_blocks} blocks) from 0x{start_addr:08X}...')
+    _read_progress(0, length)
+    for _ in range(total_blocks):
+        remaining = length - read_so_far
+        read_size = min(remaining, _BLOCK_SIZE)
+        chunk = _upload(block_num, read_size)
+        result.extend(chunk)
+        read_so_far += len(chunk)
+        block_num += 1
+        _read_progress(read_so_far, length)
+        if len(chunk) < read_size:
+            print('Short read — device signalled end of data early.')
+            break
+
+    _abort()
+
+    print('Resetting device...')
+    _set_address(0x0800_0000)
+    _dev.ctrl_transfer(0x21, _DFU_DNLOAD, 0, _INTF, None, _TIMEOUT)
+    try:
+        _get_status()
+    except Exception:
+        pass  # device resets immediately; USB error is expected
+
+    import usb.util
+    usb.util.dispose_resources(_dev)
+
+    out_bytes = bytes(result[:length])
+    with open(out_path, 'wb') as f:
+        f.write(out_bytes)
+    print(f'Saved {len(out_bytes)} bytes to {out_path}.')
+
+
 def main():
     ap = argparse.ArgumentParser(
-        description='Flash a raw .bin to the TYT MD-UV390 via its proprietary DFU protocol.')
-    ap.add_argument('bin', help='Path to the .bin file to flash')
+        description='Flash or backup firmware on the TYT MD-UV390 via its proprietary DFU protocol.')
+    ap.add_argument('bin', nargs='?', help='Path to the .bin file to flash')
+    ap.add_argument('--backup', metavar='OUT',
+                    help='Read flash and save to OUT (backup mode; cannot be used with bin or --dry-run)')
+    ap.add_argument('--start-addr', metavar='ADDR', default='0x0800C000',
+                    help='Start address for backup (default: 0x0800C000, app partition start)')
+    ap.add_argument('--length', metavar='BYTES', default='0xF4000',
+                    help='Number of bytes to read for backup (default: 0xF4000 = 976 KB, full app partition)')
     ap.add_argument('--no-cdc', action='store_true',
                     help='Skip CDC ACM DFU trigger; device must already be in DFU mode '
                          '(PTT+SK1 at power-on)')
     ap.add_argument('--dry-run', action='store_true',
-                    help='Encode the binary and print info without touching the device')
+                    help='Encode the binary and print info without touching the device (flash mode only)')
     args = ap.parse_args()
+
+    if args.backup:
+        if args.bin or args.dry_run:
+            ap.error('--backup cannot be combined with a bin argument or --dry-run')
+        start_addr = int(args.start_addr, 0)
+        length = int(args.length, 0)
+        backup(args.backup, start_addr, length, no_cdc=args.no_cdc)
+        print('Backup complete.')
+        sys.exit(0)
+
+    if not args.bin:
+        ap.error('a bin file is required when not using --backup')
 
     if args.dry_run:
         with open(args.bin, 'rb') as f:
