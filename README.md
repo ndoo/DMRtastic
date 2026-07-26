@@ -104,6 +104,38 @@ everything else keeps running. Pre-DTR, the drain thread parks on a 100 ms
 poll so boot-time logs are buffered for replay once the host opens the
 port.
 
+### Shared keypad/LCD bus (`drivers/kbd_matrix_shared_bus/`, `src/display.c`)
+
+The keypad matrix scan borrows the same 8 GPIOs as the LCD's `lcd_mipi_dbi`
+data bus and hands them back before returning, so the scan must run on the
+same thread as the LVGL display driver (see
+`include/drivers/input/kbd_matrix_shared_bus.h`).
+
+Within the scan itself, two STM32-specific quirks apply:
+- **Mode-transition glitch**: switching a pin directly from whatever output
+  state it's in to input mode can produce a brief spurious HIGH glitch. The
+  driver forces all row pins to output-low uniformly first, lets them
+  settle, then switches to input, rather than transitioning them
+  individually.
+- **No pull resistor on the input transition**: the scan uses `NOPULL` with
+  an active-high scheme rather than an internal pull-up, because an
+  internal pull-up would source current onto lines also wired to the LCD's
+  data input pins — which this shared bus can't tolerate.
+
+### AT1846S I2C access (`drivers/radio/at1846s/`)
+
+The chip is operated over I2C at 400 kHz. Each register is a 16-bit value
+addressed by an 8-bit register number; access is two separate bus
+transactions (the chip returns stale data on a repeated start). A small
+per-bank cache suppresses redundant writes when the requested value matches
+the last successful write to the same register/bank.
+
+Bus recovery runs unconditionally on every boot, to clear any SDA hold left
+by a transaction interrupted in a prior boot. `i2c_configure()` is
+deliberately never called afterwards: on STM32F4 I2C v1, the runtime
+reconfigure path leaves the event interrupt disabled — a silicon/driver
+errata, not a bug in this code.
+
 ## License
 
 [MIT](LICENSE)

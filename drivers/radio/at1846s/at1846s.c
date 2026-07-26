@@ -4,14 +4,8 @@
  *
  * Auctus AT1846S RF transceiver driver.
  *
- * Operates the chip over I2C at 400 kHz. Each register is a 16-bit
- * value addressed by an 8-bit register number; access is two separate
- * bus transactions (the chip returns stale data on a repeated start).
- * A small per-bank cache suppresses redundant writes when the requested
- * value matches the last successful write to the same register/bank.
- *
- * The driver exposes the project's radio_trx_api function-pointer
- * table; everything is synchronous and intended for thread context.
+ * I2C at 400 kHz; reads use two transactions since a repeated start
+ * returns stale data. Implements the project's radio_trx_api table.
  */
 
 #define DT_DRV_COMPAT auctus_at1846s
@@ -40,12 +34,7 @@ LOG_MODULE_REGISTER(at1846s, CONFIG_RADIO_AT1846S_LOG_LEVEL);
 #define AT1846S_HAS_BAND_GPIOS 0
 #endif
 
-/*
- * Fixed maximum kept independent of any one DT instance — the AT1846S
- * board variants in scope all use one or two band-select lines, but
- * keeping room for four lets the table-init macro emit the same shape
- * every time without conditional element counts.
- */
+/* Fixed size so the table-init macro emits the same shape for any DT instance. */
 #define AT1846S_BAND_GPIO_MAX 4
 
 /* Software squelch hysteresis: close threshold = open threshold + 3 units. */
@@ -105,6 +94,7 @@ struct at1846s_data {
 
 /* ---- Low-level I2C helpers -------------------------------------------- */
 
+/** Write a register, tracking bank selects and (if enabled) caching to skip redundant writes. */
 static int at1846s_write_reg_locked(const struct device *dev,
 				    uint8_t reg, uint8_t hi, uint8_t lo)
 {
@@ -212,6 +202,7 @@ static int at1846s_modify_reg_locked(const struct device *dev,
 	return at1846s_write_reg_locked(dev, reg, (v >> 8) & 0xFF, v & 0xFF);
 }
 
+/** Apply a bulk register table; a AT1846S_REG_DELAY entry sleeps instead of writing. */
 static int at1846s_write_table(const struct device *dev,
 			       const struct at1846s_reg_entry *entries,
 			       size_t count)
@@ -281,6 +272,7 @@ static int at1846s_apply_band_gpios(const struct at1846s_config *cfg,
 
 /* ---- API: set_frequency ---------------------------------------------- */
 
+/** Select band GPIOs and program the RX/TX frequency, holding RX off across the change. */
 static int at1846s_api_set_frequency(const struct device *dev,
 				     uint32_t freq_hz, bool tx)
 {
@@ -345,6 +337,17 @@ out:
 	return rc;
 }
 
+static int at1846s_api_get_frequency(const struct device *dev, uint32_t *freq_hz)
+{
+	struct at1846s_data *data = dev->data;
+
+	if (!freq_hz) {
+		return -EINVAL;
+	}
+	*freq_hz = data->current_rx_freq_hz;
+	return 0;
+}
+
 /* ---- API: set_mode / set_bandwidth ----------------------------------- */
 
 static int at1846s_api_set_mode(const struct device *dev,
@@ -363,6 +366,7 @@ static int at1846s_api_set_mode(const struct device *dev,
 	return at1846s_write_table(dev, table, count);
 }
 
+/** Apply the bandwidth register table, then toggle RX off/on to latch it. */
 static int at1846s_api_set_bandwidth(const struct device *dev,
 				     enum radio_bw bw)
 {
@@ -427,11 +431,14 @@ static void at1846s_set_speaker(const struct at1846s_config *cfg, bool on)
 
 /* ---- API: set_volume / set_squelch ----------------------------------- */
 
-static int at1846s_api_set_volume(const struct device *dev, uint8_t level)
+/** Map a 0-100% volume to the chip's 4-bit range, mirrored into both nibbles of REG_VOL. */
+static int at1846s_api_set_volume(const struct device *dev, uint8_t pct)
 {
-	if (level > 15) {
-		level = 15;
+	if (pct > 100) {
+		pct = 100;
 	}
+	/* Map 0–100 % to native 4-bit range 0–15 (rounded). */
+	uint8_t level = (uint8_t)((pct * 15U + 50U) / 100U);
 	/* REG_VOL low nibble = volume_2 (RX volume 0..15); mirror the value into volume_1 (high-byte low
 	 * nibble) so both digital volume gates open together. */
 	uint8_t hi = level & 0x0F;
@@ -439,6 +446,7 @@ static int at1846s_api_set_volume(const struct device *dev, uint8_t level)
 	return at1846s_write_reg(dev, AT1846S_REG_VOL, hi, lo);
 }
 
+/** Set squelch threshold; in software mode this only stores it, the squelch thread mutes. */
 static int at1846s_api_set_squelch(const struct device *dev, uint8_t level)
 {
 	const struct at1846s_config *cfg = dev->config;
@@ -458,6 +466,7 @@ static int at1846s_api_set_squelch(const struct device *dev, uint8_t level)
 
 /* ---- API: voice channel + tone1 -------------------------------------- */
 
+/** Route the voice mux to the given channel and enable its LPF bypass where needed. */
 static int at1846s_api_set_voice_channel(const struct device *dev,
 					 enum radio_voice_ch ch,
 					 uint8_t gain, uint16_t deviation)
@@ -509,6 +518,7 @@ static int at1846s_api_set_tone1_freq(const struct device *dev,
 
 /* ---- API: CSS (CTCSS / DCS) ------------------------------------------ */
 
+/** Program (or clear, if tone_dHz is 0) the TX CTCSS tone; no-op if the baseband handles CSS. */
 static int at1846s_api_set_tx_ctcss(const struct device *dev, uint16_t tone_dHz)
 {
 	const struct at1846s_config *cfg = dev->config;
@@ -558,6 +568,7 @@ static int at1846s_api_set_tx_ctcss(const struct device *dev, uint16_t tone_dHz)
 	return rc;
 }
 
+/** Program (or clear) the RX CTCSS tone and its detect threshold; no-op if baseband handles CSS. */
 static int at1846s_api_set_rx_ctcss(const struct device *dev, uint16_t tone_dHz)
 {
 	const struct at1846s_config *cfg = dev->config;
@@ -634,6 +645,7 @@ static int at1846s_api_set_rx_dcs(const struct device *dev,
 	return -ENOTSUP;
 }
 
+/** Read the CSS detect flags register and report whether the given CTCSS/DCS type matched. */
 static int at1846s_api_check_css(const struct device *dev, uint16_t tone,
 				 enum radio_css_type type, bool *detected)
 {
@@ -675,6 +687,7 @@ static int at1846s_api_register_css_cb(const struct device *dev,
 
 /* ---- API: enter_fm_rx / standby -------------------------------------- */
 
+/** Switch to FM mode, enable the RX audio mux, and start the squelch thread if in software mode. */
 static int at1846s_api_enter_fm_rx(const struct device *dev)
 {
 	const struct at1846s_config *cfg = dev->config;
@@ -748,6 +761,7 @@ static int at1846s_api_read_raw(const struct device *dev,
 K_THREAD_STACK_DEFINE(at1846s_sq_stack, CONFIG_RADIO_AT1846S_SQUELCH_STACK_SIZE);
 static struct k_thread at1846s_sq_thread_obj;
 
+/** Software-squelch worker: polls RSSI noise while RX is active and mutes/unmutes the speaker. */
 static void at1846s_squelch_thread_fn(void *p1, void *p2, void *p3)
 {
 	ARG_UNUSED(p2);
@@ -810,6 +824,7 @@ static void at1846s_squelch_thread_fn(void *p1, void *p2, void *p3)
 
 static const struct radio_trx_api at1846s_api = {
 	.set_frequency       = at1846s_api_set_frequency,
+	.get_frequency       = at1846s_api_get_frequency,
 	.set_mode            = at1846s_api_set_mode,
 	.set_bandwidth       = at1846s_api_set_bandwidth,
 	.set_tx_ctcss        = at1846s_api_set_tx_ctcss,
@@ -850,6 +865,7 @@ static int at1846s_configure_optional_gpio(const struct gpio_dt_spec *spec,
 	return 0;
 }
 
+/** Recover the I2C bus, configure optional GPIOs, run the init/postinit tables, and spawn the squelch thread. */
 static int at1846s_init(const struct device *dev)
 {
 	const struct at1846s_config *cfg = dev->config;
@@ -867,10 +883,8 @@ static int at1846s_init(const struct device *dev)
 	}
 
 	/*
-	 * Mandatory bus recovery on every boot — clears any SDA hold
-	 * left by a transaction interrupted in a prior boot. Do NOT
-	 * call i2c_configure() afterwards: on STM32F4 I2C v1, the
-	 * runtime reconfigure path leaves the event interrupt disabled.
+	 * Clears any SDA hold from a prior interrupted transaction. Skip
+	 * i2c_configure() after — STM32F4 I2C v1 disables the event IRQ on reconfigure.
 	 */
 	rc = i2c_recover_bus(cfg->i2c.bus);
 	if (rc < 0) {
@@ -939,12 +953,8 @@ static int at1846s_init(const struct device *dev)
 
 /* ---- DT instantiation ------------------------------------------------- */
 
-/*
- * Helpers to materialise band_select-gpios into a fixed-size array
- * regardless of how many entries the DTS supplies (up to four).
- * Slots beyond the actual length are left as the {0} sentinel which
- * .port == NULL skips at runtime.
- */
+/* Pads band-select-gpios out to AT1846S_BAND_GPIO_MAX; unused slots are
+ * {0} sentinels that .port == NULL skips at runtime. */
 #define AT1846S_BG_OR(inst, i) \
 	COND_CODE_1(DT_INST_PROP_HAS_IDX(inst, band_select_gpios, i),	\
 		    (GPIO_DT_SPEC_INST_GET_BY_IDX(inst, band_select_gpios, i)), \

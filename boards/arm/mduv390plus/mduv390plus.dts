@@ -7,8 +7,18 @@
 #include <st/f4/stm32f405Xg.dtsi>
 #include <st/f4/stm32f405vgtx-pinctrl.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/input/keymap.h>
 #include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/display/panel.h>
+
+/* Not yet in this Zephyr version's input-event-codes.h; matches Linux's KEY_NUMERIC_STAR/POUND,
+ * guarded in case a future update adds them. */
+#ifndef INPUT_KEY_NUMERIC_STAR
+#define INPUT_KEY_NUMERIC_STAR  0x20a
+#endif
+#ifndef INPUT_KEY_NUMERIC_POUND
+#define INPUT_KEY_NUMERIC_POUND 0x20b
+#endif
 
 /*
  * TYT MD-UV390 PLUS 10W GPS — STM32F405VGT6 (LQFP100)
@@ -43,22 +53,59 @@
 		};
 	};
 
-	/* Row outputs driven LOW one at a time during keypad scan */
-	keypad_rows: keypad_rows {
-		compatible = "gpio-leds";
-		keypad_row0: keypad_row0 {
-			gpios = <&gpioa 6 GPIO_ACTIVE_LOW>;
-		};
-		keypad_row1: keypad_row1 {
-			gpios = <&gpiod 2 GPIO_ACTIVE_LOW>;
-		};
-		keypad_row2: keypad_row2 {
-			gpios = <&gpiod 3 GPIO_ACTIVE_LOW>;
+	/* col-gpios (driven) and row-gpios (sensed) are the same 8 pins as lcd_mipi_dbi's data-gpios below;
+	 * kbd_matrix_shared_bus borrows them per scan (see that driver). Active-high, no pull -- a pull-up would source current onto the shared LCD lines. */
+	keypad: keypad {
+		compatible = "gpio-kbd-matrix-shared-bus";
+		col-gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>,
+		            <&gpiod 2 GPIO_ACTIVE_HIGH>,
+		            <&gpiod 3 GPIO_ACTIVE_HIGH>;
+		row-gpios = <&gpiod 14 GPIO_ACTIVE_HIGH>,
+		            <&gpiod 15 GPIO_ACTIVE_HIGH>,
+		            <&gpiod  0 GPIO_ACTIVE_HIGH>,
+		            <&gpiod  1 GPIO_ACTIVE_HIGH>,
+		            <&gpioe  7 GPIO_ACTIVE_HIGH>,
+		            <&gpioe  8 GPIO_ACTIVE_HIGH>,
+		            <&gpioe  9 GPIO_ACTIVE_HIGH>,
+		            <&gpioe 10 GPIO_ACTIVE_HIGH>;
+
+		/* row/col below are input-keymap's own axes (INPUT_ABS_Y/X), not physical row/col: "row" (0-7) =
+		 * sensed/physical-column, "col" (0-2) = driven/physical-row -- confirmed against real hardware labels. */
+		keymap {
+			compatible = "input-keymap";
+			row-size = <8>;
+			col-size = <3>;
+			keymap = <
+				MATRIX_KEY(0, 0, INPUT_KEY_1)
+				MATRIX_KEY(1, 0, INPUT_KEY_2)
+				MATRIX_KEY(2, 0, INPUT_KEY_3)
+				MATRIX_KEY(3, 0, INPUT_KEY_4)
+				MATRIX_KEY(4, 0, INPUT_KEY_5)
+				MATRIX_KEY(5, 0, INPUT_KEY_6)
+				MATRIX_KEY(6, 0, INPUT_KEY_0)
+				MATRIX_KEY(7, 0, INPUT_KEY_NUMERIC_STAR)
+
+				MATRIX_KEY(0, 1, INPUT_KEY_ENTER)
+				MATRIX_KEY(1, 1, INPUT_KEY_UP)
+				MATRIX_KEY(2, 1, INPUT_KEY_DOWN)
+				MATRIX_KEY(3, 1, INPUT_KEY_7)
+				MATRIX_KEY(4, 1, INPUT_KEY_8)
+				MATRIX_KEY(5, 1, INPUT_KEY_9)
+				MATRIX_KEY(6, 1, INPUT_KEY_NUMERIC_POUND)
+				MATRIX_KEY(7, 1, INPUT_KEY_BACK)
+
+				/* col 2 (D_2/PD3): only S_6/S_7 wired — SK2/SK1 */
+				MATRIX_KEY(6, 2, INPUT_KEY_F16)
+				MATRIX_KEY(7, 2, INPUT_KEY_F15)
+			>;
 		};
 	};
 
 	ptt_buttons: ptt_buttons {
 		compatible = "gpio-keys";
+		/* PE11 shares an EXTI line with the encoder's PB11 -- poll here so
+		 * the encoder gets the interrupt; PTT tolerates the latency. */
+		polling-mode;
 		ptt: ptt {
 			gpios = <&gpioe 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			zephyr,code = <INPUT_KEY_F13>;
@@ -73,9 +120,14 @@
 		compatible = "gpio-qdec";
 		gpios = <&gpioe 14 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
 		        <&gpiob 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-		steps-per-period = <1>;
-		sample-time-us = <2000>;
+		/* Real per-detent count is 2 edges (not 1 -- single clicks double-
+		 * stepped; not 4 -- single clicks were often dropped entirely). */
+		steps-per-period = <2>;
+		/* Fast enough to not miss a quadrature edge on a quick flick. */
+		sample-time-us = <250>;
 		idle-timeout-ms = <200>;
+		/* No idle-poll-time-us: PTT (above) polls now, freeing this EXTI
+		 * line so the encoder can idle on a real GPIO interrupt instead. */
 		zephyr,axis = <INPUT_REL_Y>;
 	};
 

@@ -1,0 +1,20 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: Apache-2.0
+
+config INPUT_KBD_MATRIX_SHARED_BUS
+	bool "GPIO keyboard matrix sharing pins with another device"
+	default y
+	depends on DT_HAS_GPIO_KBD_MATRIX_SHARED_BUS_ENABLED
+	select INPUT_KBD_MATRIX
+	help
+	  Keyboard matrix input driver for boards where the sensed (row) GPIOs
+	  are time-shared with another peripheral (e.g. a parallel-bus LCD)
+	  rather than owned exclusively.
+
+	  Unlike CONFIG_INPUT_GPIO_KBD_MATRIX, this driver has no interrupt or
+	  internal polling thread of its own — it never touches the shared
+	  pins except during a scan. The application must call
+	  kbd_matrix_shared_bus_scan() explicitly, from the same thread that
+	  drives the other peripheral sharing the pins, whenever it wants a
+	  scan to happen (e.g. once per display refresh). See
+	  include/drivers/input/kbd_matrix_shared_bus.h.

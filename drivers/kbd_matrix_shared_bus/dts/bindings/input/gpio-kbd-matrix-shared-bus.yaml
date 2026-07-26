@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  GPIO keyboard matrix input device sharing its sensed (row) GPIOs with
+  another peripheral, e.g. a bit-banged parallel-bus display.
+
+  Property naming and row/col orientation match "gpio-kbd-matrix": col-gpios
+  are the driven lines (dedicated pins), row-gpios are the sensed lines (up
+  to 8, fits kbd_row_t) — here, row-gpios may reference the same underlying
+  GPIO phandles as another device's pins. Devicetree allows two nodes to
+  reference the same physical pin; only runtime access needs coordinating,
+  which is this driver's reason for existing instead of plain
+  "gpio-kbd-matrix" (see driver help text).
+
+  This driver never scans on its own — there is no interrupt or internal
+  polling thread. The application must call kbd_matrix_shared_bus_scan()
+  explicitly from the thread that also drives the shared pins.
+
+compatible: "gpio-kbd-matrix-shared-bus"
+
+include:
+  - name: kbd-matrix-common.yaml
+    property-blocklist:
+      - row-size
+      - col-size
+
+# poll-period-us / stable-poll-period-us / poll-timeout-ms (inherited from
+# kbd-matrix-common.yaml) are unused by this driver — it has no idle-poll
+# loop — but are kept available (not blocklisted) because the shared
+# INPUT_KBD_MATRIX_DT_INST_COMMON_CONFIG_INIT_ROW_COL() macro this driver
+# reuses unconditionally reads them via DT_PROP(); removing them from the
+# binding would leave that macro referencing an undefined property.
+
+properties:
+  col-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      GPIO for the keyboard matrix's driven lines (dedicated pins, not
+      shared). Up to 32.
+
+  row-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      GPIO for the keyboard matrix's sensed lines, up to 8. May be the same
+      physical pins as another device's GPIOs (e.g. a display data bus) —
+      the caller is responsible for only invoking a scan when it is safe to
+      borrow them.

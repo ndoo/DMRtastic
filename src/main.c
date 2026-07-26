@@ -12,7 +12,7 @@
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 #define PMR446_CH1_HZ     446006250U  /* diagnostic channel */
-#define PMR446_VOLUME_MIN 1U   /* REG_VOL low nibble; range 0..15 */
+#define PMR446_VOLUME_MIN 7U   /* RX volume percent (0–100); 7 % ≈ native level 1 */
 #define PMR446_SQUELCH_TH 55U  /* AT1846S 0x1B lo-byte noise threshold;
 				* opens when noise < 55, closes when > 58. */
 

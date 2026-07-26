@@ -1,0 +1,6 @@
+name: kbd_matrix_shared_bus
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .
