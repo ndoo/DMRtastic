@@ -1,8 +1,15 @@
 # Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
+#
+# Vendored from zephyrproject-rtos/zephyr PR #108055 (merged commit
+# c799b817f17048649da598bd1d1e7f747c8e9ae2, `main` branch, 2026-06-12).
+# No tagged Zephyr release contains it yet (the pinned ststm32@19.6.0
+# platform ships Zephyr 4.4.0, which predates the merge). Drop this
+# out-of-tree copy and switch to the in-tree driver once a Zephyr release
+# containing it is picked up.
 
 description: |
-  Himax HX8353-E 132RGB×162 dot TFT Mobile Single Chip controller.
+  Himax HX8353-E 132RGBx162 dot TFT Mobile Single Chip controller.
 
   Driven via the MIPI DBI Type B (Intel 8080) parallel interface.
 

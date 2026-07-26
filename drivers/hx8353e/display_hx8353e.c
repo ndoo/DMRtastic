@@ -2,6 +2,9 @@
  * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
  *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Vendored from zephyr PR #108055 (merged c799b817, 2026-06-12) -- not yet in a tagged release (pinned
+ * ststm32@19.6.0 = Zephyr 4.4.0, predates the merge). Drop this copy once a release picks it up.
  */
 
 #define DT_DRV_COMPAT himax_hx8353e
@@ -22,7 +25,7 @@
 
 LOG_MODULE_REGISTER(hx8353e, CONFIG_DISPLAY_LOG_LEVEL);
 
-/* Standard MIPI DCS commands (HX8353-E datasheet §8.1, §8.2) */
+/* Standard MIPI DCS commands (HX8353-E datasheet section 8.1, section 8.2) */
 #define HX8353E_SLPOUT  0x11
 #define HX8353E_INVOFF  0x20
 #define HX8353E_INVON   0x21
@@ -34,12 +37,12 @@ LOG_MODULE_REGISTER(hx8353e, CONFIG_DISPLAY_LOG_LEVEL);
 #define HX8353E_MADCTL  0x36
 #define HX8353E_COLMOD  0x3A
 
-/* MADCTL bits (HX8353-E datasheet §8.2.29) */
+/* MADCTL bits (HX8353-E datasheet section 8.2.29) */
 #define HX8353E_MADCTL_MY  BIT(7)
 #define HX8353E_MADCTL_MX  BIT(6)
 #define HX8353E_MADCTL_MV  BIT(5)
 
-/* COLMOD: 16-bit/pixel RGB565 (HX8353-E datasheet §8.2.33) */
+/* COLMOD: 16-bit/pixel RGB565 (HX8353-E datasheet section 8.2.33) */
 #define HX8353E_COLMOD_RGB565 0x05
 
 /* MADCTL values for Zephyr orientations (datasheet §8.2.29 bit defs); ROTATED_90 (MX|MV=0x60)
@@ -84,35 +87,42 @@ static int hx8353e_cmd(const struct device *dev, uint8_t cmd,
 				      cmd, data, len);
 }
 
-static void hx8353e_backlight_off(const struct device *dev)
+static int hx8353e_backlight_off(const struct device *dev)
 {
 	const struct hx8353e_config *cfg = dev->config;
+	int ret = 0;
 
 	ARG_UNUSED(cfg);
 
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(pwms)
 	if (cfg->backlight_pwm.dev != NULL) {
-		pwm_set_pulse_dt(&cfg->backlight_pwm, 0);
+		ret = pwm_set_pulse_dt(&cfg->backlight_pwm, 0);
 	}
 #endif
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(backlight_gpios)
 	if (cfg->backlight_gpio.port != NULL) {
-		gpio_pin_set_dt(&cfg->backlight_gpio, 0);
+		int r = gpio_pin_set_dt(&cfg->backlight_gpio, 0);
+
+		if (ret == 0) {
+			ret = r;
+		}
 	}
 #endif
+	return ret;
 }
 
-static void hx8353e_backlight_restore(const struct device *dev)
+static int hx8353e_backlight_restore(const struct device *dev)
 {
 	const struct hx8353e_config *cfg = dev->config;
 	const struct hx8353e_data *data = dev->data;
+	int ret = 0;
 
 	ARG_UNUSED(cfg);
 	ARG_UNUSED(data);
 
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(backlight_gpios)
 	if (cfg->backlight_gpio.port != NULL) {
-		gpio_pin_set_dt(&cfg->backlight_gpio, 1);
+		ret = gpio_pin_set_dt(&cfg->backlight_gpio, 1);
 	}
 #endif
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(pwms)
@@ -120,9 +130,14 @@ static void hx8353e_backlight_restore(const struct device *dev)
 		uint32_t pulse = (uint32_t)((uint64_t)cfg->backlight_pwm.period
 					    * data->brightness / 255U);
 
-		pwm_set_pulse_dt(&cfg->backlight_pwm, pulse);
+		int r = pwm_set_pulse_dt(&cfg->backlight_pwm, pulse);
+
+		if (ret == 0) {
+			ret = r;
+		}
 	}
 #endif
+	return ret;
 }
 
 static int hx8353e_init_display(const struct device *dev)
@@ -137,7 +152,7 @@ static int hx8353e_init_display(const struct device *dev)
 	}
 	k_msleep(20);
 
-	/* tSLOUT minimum 120 ms (HX8353-E datasheet §8.2.12 SLPOUT) */
+	/* tSLOUT minimum 120 ms (HX8353-E datasheet section 8.2.12 SLPOUT) */
 	ret = hx8353e_cmd(dev, HX8353E_SLPOUT, NULL, 0);
 	if (ret < 0) {
 		return ret;
@@ -182,7 +197,11 @@ static int hx8353e_init_display(const struct device *dev)
 
 	/* Clear GRAM to black before display-on -- power-on content is undefined, so this prevents a flash of
 	 * random pixels at boot. Row window advances one line at a time so the zero buffer fits in a static BSS array. */
-	uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(cfg->width - 1)};
+	uint16_t col_end = cfg->width - 1;
+	uint8_t caset[] = {
+		0x00, 0x00,
+		(uint8_t)(col_end >> 8), (uint8_t)col_end
+	};
 
 	ret = hx8353e_cmd(dev, HX8353E_CASET, caset, sizeof(caset));
 	if (ret < 0) {
@@ -190,10 +209,12 @@ static int hx8353e_init_display(const struct device *dev)
 	}
 
 	static const uint8_t zero_row[162 * 2];
-	uint8_t paset_row[4] = {0x00, 0x00, 0x00, 0x00};
+	uint8_t paset_row[4];
 
 	for (uint16_t row = 0; row < cfg->height; row++) {
+		paset_row[0] = (uint8_t)(row >> 8);
 		paset_row[1] = (uint8_t)row;
+		paset_row[2] = (uint8_t)(row >> 8);
 		paset_row[3] = (uint8_t)row;
 		ret = hx8353e_cmd(dev, HX8353E_PASET, paset_row, sizeof(paset_row));
 		if (ret < 0) {
@@ -213,7 +234,7 @@ static int hx8353e_init_display(const struct device *dev)
 	}
 
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(backlight_gpios) || \
-    DT_ANY_INST_HAS_PROP_STATUS_OKAY(pwms)
+	DT_ANY_INST_HAS_PROP_STATUS_OKAY(pwms)
 	/* Wait one frame after DISPON before enabling the backlight -- the gate driver needs ~17 ms (60 Hz) to
 	 * settle the LC layer to the black pixels written above; enabling sooner causes a brief white flash. */
 	k_msleep(30);
@@ -244,12 +265,22 @@ static int hx8353e_init_display(const struct device *dev)
 static int hx8353e_blanking_on(const struct device *dev)
 {
 	struct hx8353e_data *data = dev->data;
+	int ret;
 
-	hx8353e_backlight_off(dev);
+	ret = hx8353e_backlight_off(dev);
+	if (ret < 0) {
+		return ret;
+	}
 
 	data->blanking = true;
 	data->last_window_valid = false;
-	return hx8353e_cmd(dev, HX8353E_DISPOFF, NULL, 0);
+
+	ret = hx8353e_cmd(dev, HX8353E_DISPOFF, NULL, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return 0;
 }
 
 static int hx8353e_blanking_off(const struct device *dev)
@@ -265,7 +296,11 @@ static int hx8353e_blanking_off(const struct device *dev)
 		return ret;
 	}
 
-	hx8353e_backlight_restore(dev);
+	ret = hx8353e_backlight_restore(dev);
+	if (ret < 0) {
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -303,6 +338,10 @@ static int hx8353e_write(const struct device *dev, const uint16_t x, const uint1
 
 	LOG_DBG("write x=%u y=%u w=%u h=%u buf_size=%u",
 		x, y, desc->width, desc->height, desc->buf_size);
+
+	if (data->blanking) {
+		return 0;
+	}
 
 	bool need_window = !data->last_window_valid ||
 			   data->last_x != x || data->last_y != y ||
@@ -426,6 +465,11 @@ static int hx8353e_init(const struct device *dev)
 		return -ENODEV;
 	}
 
+	if (cfg->dbi_config.mode != MIPI_DBI_MODE_8080_BUS_8_BIT) {
+		LOG_ERR("only MIPI_DBI_MODE_8080_BUS_8_BIT is supported");
+		return -ENOTSUP;
+	}
+
 	switch (cfg->rotation) {
 	case 90:
 		data->orientation = DISPLAY_ORIENTATION_ROTATED_90;
@@ -445,11 +489,26 @@ static int hx8353e_init(const struct device *dev)
 	return hx8353e_init_display(dev);
 }
 
+/* GRAM is 132x162 natively; rotation 90/270 sets MADCTL's MV bit, swapping which axis width/height addresses --
+ * upstream's check (Zephyr PR #108055) misses this and rejects 160x128@90, so it's reproduced rotation-aware here. */
 #define HX8353E_INIT(n)								\
+	BUILD_ASSERT((DT_INST_PROP(n, rotation) == 90 ||			\
+		      DT_INST_PROP(n, rotation) == 270) ?			\
+			     (DT_INST_PROP(n, width) <= 162 &&			\
+			      DT_INST_PROP(n, height) <= 132) :		\
+			     (DT_INST_PROP(n, width) <= 132 &&			\
+			      DT_INST_PROP(n, height) <= 162),			\
+		     "HX8353E width/height exceed the 132x162 GRAM (chip limit)"); \
 	static const struct hx8353e_config hx8353e_config_##n = {		\
 		.mipi_dbi      = DEVICE_DT_GET(DT_INST_PARENT(n)),		\
-		.dbi_config    = MIPI_DBI_CONFIG_DT_INST(n,			\
-				 SPI_OP_MODE_MASTER | SPI_WORD_SET(8), 0),	\
+		.dbi_config    = {						\
+			.mode         = DT_STRING_UPPER_TOKEN(		\
+					DT_DRV_INST(n), mipi_mode),	\
+			.color_coding = MIPI_DBI_MODE_RGB565,		\
+			.config       = MIPI_DBI_SPI_CONFIG_DT_INST(	\
+					n, SPI_OP_MODE_MASTER |		\
+					SPI_WORD_SET(8), 0),		\
+		},							\
 		.width         = DT_INST_PROP(n, width),			\
 		.height        = DT_INST_PROP(n, height),			\
 		.rotation      = DT_INST_PROP(n, rotation),			\
@@ -459,7 +518,7 @@ static int hx8353e_init(const struct device *dev)
 			 GPIO_DT_SPEC_INST_GET_OR(n, backlight_gpios, {0}),))	\
 		IF_ENABLED(DT_ANY_INST_HAS_PROP_STATUS_OKAY(pwms),		\
 			(.backlight_pwm =					\
-			 PWM_DT_SPEC_INST_GET_OR(n, pwms, {0}),))		\
+			 PWM_DT_SPEC_INST_GET_OR(n, {0}),))		\
 	};									\
 										\
 	static struct hx8353e_data hx8353e_data_##n = {				\
