@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 /*
- * Screen manager and navigation stack.
+ * Screen manager — static top-level frames, meshtastic-device-ui convention.
  *
  * Threading boundary: all LVGL object access is confined to the LVGL thread
  * (the one that calls ui_tick() and lv_timer_handler()). External contexts
@@ -10,18 +10,24 @@
  * iteration. This is the only place in the firmware where actions cross from
  * the outside world into LVGL.
  *
- * Navigation stack (depth UI_NAV_STACK_DEPTH):
- *   ui_push_screen(id)   — Green/OK: create new screen, push onto stack
- *   ui_pop_screen()      — Back/Red: destroy top, restore previous
- *   ui_switch_screen(id) — mode change: flush entire stack, load new screen
+ * Frames (FM VFO, Settings) are created exactly once at ui_init() and never
+ * destroyed — "navigation" is hiding the current frame and showing another,
+ * not create()/destroy() churn. SCREEN_BOOT is the one exception: a genuine
+ * one-shot transient torn down by ui_switch_screen() the first (and only)
+ * time it's called.
  *
- * Screen modules register via the screen_ops[] table. Adding a new screen:
- *   1. Add an enum value to screen_id_t in ui.h
- *   2. Add a screen_ops_t row below (NULL ops = reserved stub)
- *   3. Add screen_*.c to the build
+ *   ui_push_screen(id) — Green/OK: show frame id, remember current for Back
+ *   ui_pop_screen()    — Back/Red: hide current frame, restore the previous
+ *   ui_switch_screen()  — one-time boot -> first frame transition only
  *
- * Menu screens share a single generic renderer (screen_menu.c); call
- * screen_menu_prepare() before ui_push_screen(SCREEN_MENU_*).
+ * Row/tab navigation inside a frame (Settings) is native LVGL: every row and
+ * tab-bar button is a member of one shared lv_group (see ui_init()), fed by
+ * the zephyr,lvgl-keypad-input indev (DTS) — Up/Down always navigate.
+ * The rotary encoder deliberately has no lv_group binding (OpenGD77
+ * convention): it adjusts whatever's currently focused directly, via
+ * UI_ACTION_ENCODER_CW/CCW (see screen_settings_handle_action()).
+ * ui_action_t's UP/DOWN/OK only still matter for frames with no group
+ * members at all — currently just FM VFO's direct frequency step.
  */
 
 #include "ui.h"
@@ -31,14 +37,14 @@
 #include "overlays/overlay_quickmenu.h"
 #include "screens/screen_boot.h"
 #include "screens/screen_fm_vfo.h"
-#include "screens/screen_menu.h"
-#include "screens/screen_device_info.h"
+#include "screens/screen_settings.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <lvgl.h>
+#include <lvgl_input_device.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -46,51 +52,131 @@
 
 LOG_MODULE_REGISTER(app_ui, LOG_LEVEL_INF);
 
-/* ---------- Screen ops table -------------------------------------------- */
+/* ---------- Menu item definitions (defined early; frame_ops needs them) -- */
+
+/*
+ * dir is always +1 or -1 here (see menu_item_t in screen_settings.h): +1 on
+ * ENTER/click or an encoder CW turn, -1 on an encoder CCW turn. Adding
+ * ARRAY_SIZE before the modulo keeps the result non-negative for dir=-1
+ * without a full signed-modulo helper, since |dir| is always < count.
+ */
+
+/* Cycles through a small preset table; real driver call. */
+static char          s_squelch_val_buf[8] = "55";
+static const uint8_t squelch_presets[] = { 30, 45, 55, 70, 85 };
+static uint8_t        s_squelch_idx = 2; /* index of 55, matches the boot default */
+
+static void squelch_cycle(int8_t dir)
+{
+	s_squelch_idx = (uint8_t)(((int)s_squelch_idx + dir + ARRAY_SIZE(squelch_presets)) %
+				  ARRAY_SIZE(squelch_presets));
+
+	uint8_t level = squelch_presets[s_squelch_idx];
+	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
+	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
+	int rc = api->set_squelch(trx, level);
+
+	if (rc < 0) {
+		LOG_WRN("set_squelch(%u) failed: %d", level, rc);
+	}
+	snprintf(s_squelch_val_buf, sizeof(s_squelch_val_buf), "%u", level);
+	ui_set_squelch_threshold(level);
+}
+
+/* Toggles 25K/12.5K; real driver call. A 2-state toggle has no meaningful
+ * "direction," so dir is ignored -- either way just flips it. */
+static char s_bw_val_buf[8] = "25K";
+static bool s_bw_is_25k = true;
+
+static void bandwidth_cycle(int8_t dir)
+{
+	ARG_UNUSED(dir);
+	s_bw_is_25k = !s_bw_is_25k;
+
+	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
+	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
+	int rc = api->set_bandwidth(trx, s_bw_is_25k ? RADIO_BW_25K : RADIO_BW_12K5);
+
+	if (rc < 0) {
+		LOG_WRN("set_bandwidth failed: %d", rc);
+	}
+	snprintf(s_bw_val_buf, sizeof(s_bw_val_buf), "%s", s_bw_is_25k ? "25K" : "12.5K");
+	ui_set_bandwidth_str(s_bw_val_buf);
+}
+
+/* VFO Up/Down step size, cycled from the RADIO settings menu. */
+static const uint32_t    step_presets_hz[]    = { 2500, 5000, 6250, 12500, 25000 };
+static const char *const step_preset_labels[] = { "2.5k", "5k", "6.25k", "12.5k", "25k" };
+static uint8_t            s_step_idx = 1; /* 5 kHz default */
+static char               s_step_val_buf[8] = "5k";
+
+uint32_t ui_get_step_hz(void)
+{
+	return step_presets_hz[s_step_idx];
+}
+
+/* Cycles through the preset step-size table. */
+static void step_cycle(int8_t dir)
+{
+	s_step_idx = (uint8_t)(((int)s_step_idx + dir + ARRAY_SIZE(step_presets_hz)) %
+			       ARRAY_SIZE(step_presets_hz));
+	snprintf(s_step_val_buf, sizeof(s_step_val_buf), "%s",
+		 step_preset_labels[s_step_idx]);
+}
+
+static void stub_item(int8_t dir)
+{
+	ARG_UNUSED(dir);
+	LOG_INF("item: not yet implemented");
+}
+
+static const menu_item_t radio_items[] = {
+	{ "Squelch",   squelch_cycle,   s_squelch_val_buf },
+	{ "Volume",    stub_item,       "7 %"             },
+	{ "Bandwidth", bandwidth_cycle, s_bw_val_buf       },
+	{ "Step",      step_cycle,      s_step_val_buf     },
+	{ "CTCSS/DCS", stub_item,       "Off"              },
+};
+
+static const menu_item_t display_items[] = {
+	{ "Brightness",     stub_item, "100%" },
+	{ "Screen timeout", stub_item, "30s"  },
+};
+
+static lv_obj_t *create_settings(lv_obj_t *parent)
+{
+	return screen_settings_create(parent,
+				       radio_items, ARRAY_SIZE(radio_items),
+				       display_items, ARRAY_SIZE(display_items));
+}
+
+/* ---------- Frame ops table -----------------------------------------------
+ * SCREEN_BOOT has no entry -- one-shot transient, handled by ui_init()/ui_switch_screen(), not the static-frame model. */
 
 typedef struct {
 	lv_obj_t *(*create)(lv_obj_t *parent);
-	void      (*destroy)(lv_obj_t *screen);
 	void      (*update)(lv_obj_t *screen);
 	void      (*handle_action)(lv_obj_t *screen, ui_action_t action);
-} screen_ops_t;
-
-/* Forward declarations for menu prepare helpers defined at bottom of file. */
-static void prepare_menu_main(void);
-static void prepare_menu_radio(void);
-static void prepare_menu_display(void);
-
-/* Wrappers that call prepare then create, so the ops table stays uniform. */
-static lv_obj_t *create_menu_main(lv_obj_t *p)
-{
-	prepare_menu_main();
-	return screen_menu_create(p);
-}
-static lv_obj_t *create_menu_radio(lv_obj_t *p)
-{
-	prepare_menu_radio();
-	return screen_menu_create(p);
-}
-static lv_obj_t *create_menu_display(lv_obj_t *p)
-{
-	prepare_menu_display();
-	return screen_menu_create(p);
-}
+} frame_ops_t;
 
 /*
- * No physical key maps to UI_ACTION_MENU (no dedicated MENU key in the
- * hardware layout) — OK from the FM VFO screen opens the main menu instead.
+ * OK opens Settings; Up/Down keys and the encoder both step the RX
+ * frequency (FM VFO has no lv_group members, so the shared keypad indev's
+ * PREV/NEXT delivery here is a harmless no-op regardless of what's focused
+ * elsewhere).
  */
 static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
 	case UI_ACTION_OK:
-		ui_push_screen(SCREEN_MENU_MAIN);
+		ui_push_screen(SCREEN_SETTINGS);
 		break;
 	case UI_ACTION_UP:
+	case UI_ACTION_ENCODER_CW:
 		screen_fm_vfo_step(screen, true);
 		break;
 	case UI_ACTION_DOWN:
+	case UI_ACTION_ENCODER_CCW:
 		screen_fm_vfo_step(screen, false);
 		break;
 	default:
@@ -98,35 +184,59 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 	}
 }
 
-static const screen_ops_t screen_ops[SCREEN_COUNT] = {
-	[SCREEN_BOOT]         = { screen_boot_create,        screen_boot_destroy,        screen_boot_update,        NULL                        },
-	[SCREEN_FM_VFO]       = { screen_fm_vfo_create,       screen_fm_vfo_destroy,      screen_fm_vfo_update,      fm_vfo_handle_action        },
-	[SCREEN_MENU_MAIN]    = { create_menu_main,           screen_menu_destroy,        screen_menu_update,        screen_menu_handle_action   },
-	[SCREEN_MENU_RADIO]   = { create_menu_radio,          screen_menu_destroy,        screen_menu_update,        screen_menu_handle_action   },
-	[SCREEN_MENU_DISPLAY] = { create_menu_display,        screen_menu_destroy,        screen_menu_update,        screen_menu_handle_action   },
-	[SCREEN_DEVICE_INFO]  = { screen_device_info_create,  screen_device_info_destroy, screen_device_info_update, NULL                        },
+static const frame_ops_t frame_ops[SCREEN_COUNT] = {
+	[SCREEN_FM_VFO]      = { screen_fm_vfo_create, screen_fm_vfo_update,
+				  fm_vfo_handle_action                          },
+	[SCREEN_SETTINGS]    = { create_settings,      screen_settings_update,
+				  screen_settings_handle_action                 },
 	/* stubs — not implemented */
-	[SCREEN_FM_CHANNEL]   = { NULL, NULL, NULL, NULL },
-	[SCREEN_DMR_VFO]      = { NULL, NULL, NULL, NULL },
-	[SCREEN_DMR_CHANNEL]  = { NULL, NULL, NULL, NULL },
-	[SCREEN_CONTACTS]     = { NULL, NULL, NULL, NULL },
-	[SCREEN_ZONES]        = { NULL, NULL, NULL, NULL },
+	[SCREEN_FM_CHANNEL]  = { NULL, NULL, NULL },
+	[SCREEN_DMR_VFO]     = { NULL, NULL, NULL },
+	[SCREEN_DMR_CHANNEL] = { NULL, NULL, NULL },
+	[SCREEN_CONTACTS]    = { NULL, NULL, NULL },
+	[SCREEN_ZONES]       = { NULL, NULL, NULL },
 };
 
-/* ---------- Navigation stack -------------------------------------------- */
+/* ---------- Frame state -----------------------------------------------------
+ * s_frame_obj[id] is set once a frame is created (never again); s_frame_stack holds Back history as plain IDs -- objects live forever, nothing to destroy on pop. */
 
-#define UI_NAV_STACK_DEPTH 8
+static lv_obj_t *s_frame_obj[SCREEN_COUNT];
 
-static struct {
-	screen_id_t id;
-	lv_obj_t   *obj;
-} nav_stack[UI_NAV_STACK_DEPTH];
+#define UI_FRAME_STACK_DEPTH 4
 
-static int nav_top = -1;
+static screen_id_t s_frame_stack[UI_FRAME_STACK_DEPTH];
+static int         s_frame_top = -1;
+
+static lv_obj_t *s_boot_obj; /* one-shot transient; NULL once torn down */
 
 /* Persistent containers, parented to the LVGL screen. */
 static lv_obj_t *s_status_bar_obj;
 static lv_obj_t *s_content;
+
+/* ---------- Shared input group (meshtastic-device-ui convention) ------------
+ * One lv_group_t serves every group-navigable widget, fed by the keypad indev only, attached only while something with group members is on top. */
+
+static lv_group_t *s_input_group;
+static lv_indev_t *s_keypad_indev;
+static bool         s_indev_group_attached;
+
+static void update_indev_group_attachment(void)
+{
+	bool need_group = (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS) ||
+			  overlay_quickmenu_is_active();
+
+	if (need_group == s_indev_group_attached) {
+		return;
+	}
+
+	lv_indev_set_group(s_keypad_indev, need_group ? s_input_group : NULL);
+	if (need_group) {
+		/* The OK press that opened this screen may still be mid-air (queued PRESS, no RELEASE yet) --
+		 * without this, LVGL fires a stray RELEASE on whatever's now focused, descending into tab content instead of the tab bar. */
+		lv_indev_wait_release(s_keypad_indev);
+	}
+	s_indev_group_attached = need_group;
+}
 
 /* ---------- Event queue (RTOS → LVGL thread boundary) ------------------- */
 
@@ -172,8 +282,12 @@ static void update_timer_cb(lv_timer_t *t)
 {
 	ARG_UNUSED(t);
 	status_bar_update();
-	if (nav_top >= 0 && screen_ops[nav_stack[nav_top].id].update) {
-		screen_ops[nav_stack[nav_top].id].update(nav_stack[nav_top].obj);
+	if (s_frame_top >= 0) {
+		screen_id_t id = s_frame_stack[s_frame_top];
+
+		if (frame_ops[id].update) {
+			frame_ops[id].update(s_frame_obj[id]);
+		}
 	}
 }
 
@@ -288,26 +402,24 @@ void ui_set_bandwidth_str(const char *bw)
 	s_bw_str[sizeof(s_bw_str) - 1] = '\0';
 }
 
-/* VFO Up/Down step size, cycled from the RADIO settings menu. */
-static const uint32_t    step_presets_hz[]    = { 2500, 5000, 6250, 12500, 25000 };
-static const char *const step_preset_labels[] = { "2.5k", "5k", "6.25k", "12.5k", "25k" };
-static uint8_t            s_step_idx = 1; /* 5 kHz default */
-static char               s_step_val_buf[8] = "5k";
-
-uint32_t ui_get_step_hz(void)
-{
-	return step_presets_hz[s_step_idx];
-}
-
 static void dispatch_action(ui_action_t action)
 {
 	switch (action) {
 	case UI_ACTION_BACK:
-		ui_pop_screen();
-		break;
-	case UI_ACTION_MENU:
-		if (nav_top >= 0 && nav_stack[nav_top].id != SCREEN_MENU_MAIN) {
-			ui_push_screen(SCREEN_MENU_MAIN);
+		/*
+		 * Priority: quick-menu overlay (no touchscreen to dismiss it
+		 * with) > a tabview's row level (ascend to the tab level
+		 * first, per-tabview two-level hierarchy) > leave the frame
+		 * entirely. Each check only fires if the thing above it
+		 * doesn't apply, so Back always does exactly one step.
+		 */
+		if (overlay_quickmenu_is_active()) {
+			overlay_quickmenu_hide();
+		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS &&
+			   screen_settings_in_rows_level()) {
+			screen_settings_exit_rows_level();
+		} else {
+			ui_pop_screen();
 		}
 		break;
 	case UI_ACTION_VOL_UP:
@@ -321,9 +433,14 @@ static void dispatch_action(ui_action_t action)
 	case UI_ACTION_OK:
 	case UI_ACTION_UP:
 	case UI_ACTION_DOWN:
-		if (nav_top >= 0 && screen_ops[nav_stack[nav_top].id].handle_action) {
-			screen_ops[nav_stack[nav_top].id].handle_action(
-				nav_stack[nav_top].obj, action);
+	case UI_ACTION_ENCODER_CW:
+	case UI_ACTION_ENCODER_CCW:
+		if (s_frame_top >= 0) {
+			screen_id_t id = s_frame_stack[s_frame_top];
+
+			if (frame_ops[id].handle_action) {
+				frame_ops[id].handle_action(s_frame_obj[id], action);
+			}
 		}
 		break;
 	case UI_ACTION_PTT:
@@ -388,15 +505,30 @@ void ui_init(void)
 	lv_obj_set_style_pad_all(s_content, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(s_content, LV_SCROLLBAR_MODE_OFF);
 
+	/*
+	 * Shared input group — meshtastic-device-ui convention. Indevs start
+	 * unattached (group = NULL, LVGL's default); update_indev_group_
+	 * attachment() attaches/detaches them as frames/overlays change.
+	 */
+	s_input_group = lv_group_create();
+	lv_group_set_default(s_input_group);
+	s_keypad_indev = lvgl_input_get_indev(DEVICE_DT_GET(DT_NODELABEL(lvgl_keypad)));
+
 	/* Overlays — created once, parented to lv_layer_top() */
 	overlay_volume_create();
 	overlay_quickmenu_create();
 
+	/* Static top-level frames — created once, hidden until shown. */
+	s_frame_obj[SCREEN_FM_VFO] = frame_ops[SCREEN_FM_VFO].create(s_content);
+	lv_obj_add_flag(s_frame_obj[SCREEN_FM_VFO], LV_OBJ_FLAG_HIDDEN);
+	s_frame_obj[SCREEN_SETTINGS] = frame_ops[SCREEN_SETTINGS].create(s_content);
+	lv_obj_add_flag(s_frame_obj[SCREEN_SETTINGS], LV_OBJ_FLAG_HIDDEN);
+
 	/* Start 200 ms update timer */
 	lv_timer_create(update_timer_cb, 200, NULL);
 
-	/* Boot screen — auto-advances to FM VFO after 2 s */
-	ui_switch_screen(SCREEN_BOOT);
+	/* Boot screen — one-shot transient; auto-advances to FM VFO after 2 s */
+	s_boot_obj = screen_boot_create(s_content);
 }
 
 void ui_tick(void)
@@ -410,161 +542,66 @@ void ui_tick(void)
 	if (k_msgq_get(&ui_vol_events, &vol_raw, K_NO_WAIT) == 0) {
 		apply_volume(vol_raw);
 	}
+	/* Cheap enough to recompute every tick — self-heals within one ~50 ms
+	 * iteration after any frame switch or quick-menu show/dismiss. */
+	update_indev_group_attachment();
 }
 
 void ui_push_screen(screen_id_t id)
 {
-	if (id >= SCREEN_COUNT || screen_ops[id].create == NULL) {
+	if (id >= SCREEN_COUNT || frame_ops[id].create == NULL) {
 		LOG_WRN("push: screen %d not implemented", id);
 		return;
 	}
-	if (nav_top >= UI_NAV_STACK_DEPTH - 1) {
-		LOG_WRN("push: nav stack full");
+	if (s_frame_top >= UI_FRAME_STACK_DEPTH - 1) {
+		LOG_WRN("push: frame stack full");
 		return;
 	}
 
-	lv_obj_t *obj = screen_ops[id].create(s_content);
-	nav_top++;
-	nav_stack[nav_top].id  = id;
-	nav_stack[nav_top].obj = obj;
+	if (s_frame_top >= 0) {
+		lv_obj_add_flag(s_frame_obj[s_frame_stack[s_frame_top]], LV_OBJ_FLAG_HIDDEN);
+	}
 
-	LOG_DBG("push screen %d (depth %d)", id, nav_top + 1);
+	s_frame_top++;
+	s_frame_stack[s_frame_top] = id;
+	lv_obj_remove_flag(s_frame_obj[id], LV_OBJ_FLAG_HIDDEN);
+
+	LOG_DBG("push frame %d (depth %d)", id, s_frame_top + 1);
 }
 
 void ui_pop_screen(void)
 {
-	if (nav_top < 0) {
-		return;
+	if (s_frame_top <= 0) {
+		return; /* nothing to go back to */
 	}
 
-	screen_id_t id  = nav_stack[nav_top].id;
-	lv_obj_t   *obj = nav_stack[nav_top].obj;
+	lv_obj_add_flag(s_frame_obj[s_frame_stack[s_frame_top]], LV_OBJ_FLAG_HIDDEN);
+	s_frame_top--;
+	lv_obj_remove_flag(s_frame_obj[s_frame_stack[s_frame_top]], LV_OBJ_FLAG_HIDDEN);
 
-	if (screen_ops[id].destroy) {
-		screen_ops[id].destroy(obj);
-	}
-	nav_top--;
-
-	LOG_DBG("pop screen %d (depth %d)", id, nav_top + 1);
+	LOG_DBG("pop to frame %d (depth %d)", s_frame_stack[s_frame_top], s_frame_top + 1);
 }
 
 void ui_switch_screen(screen_id_t id)
 {
-	/* Flush the entire stack. */
-	while (nav_top >= 0) {
-		screen_id_t sid  = nav_stack[nav_top].id;
-		lv_obj_t   *sobj = nav_stack[nav_top].obj;
-
-		if (screen_ops[sid].destroy) {
-			screen_ops[sid].destroy(sobj);
-		}
-		nav_top--;
+	if (s_boot_obj) {
+		screen_boot_destroy(s_boot_obj);
+		s_boot_obj = NULL;
 	}
 
-	if (id >= SCREEN_COUNT || screen_ops[id].create == NULL) {
-		LOG_WRN("switch: screen %d not implemented", id);
+	if (id >= SCREEN_COUNT || s_frame_obj[id] == NULL) {
+		LOG_WRN("switch: screen %d not available", id);
 		return;
 	}
 
-	lv_obj_t *obj = screen_ops[id].create(s_content);
-	nav_top = 0;
-	nav_stack[0].id  = id;
-	nav_stack[0].obj = obj;
+	s_frame_top = 0;
+	s_frame_stack[0] = id;
+	lv_obj_remove_flag(s_frame_obj[id], LV_OBJ_FLAG_HIDDEN);
 
-	LOG_DBG("switch to screen %d", id);
+	LOG_DBG("switch to frame %d", id);
 }
 
 void ui_overlay_volume_show(uint8_t pct)
 {
 	overlay_volume_show(pct);
-}
-
-/* ---------- Menu item definitions --------------------------------------- */
-
-static void open_menu_radio(void)   { ui_push_screen(SCREEN_MENU_RADIO);   }
-static void open_menu_display(void) { ui_push_screen(SCREEN_MENU_DISPLAY); }
-static void open_device_info(void)  { ui_push_screen(SCREEN_DEVICE_INFO);  }
-static void stub_item(void)         { LOG_INF("item: not yet implemented"); }
-
-static const menu_item_t main_items[] = {
-	{ "Radio Settings",   open_menu_radio,   NULL  },
-	{ "Display Settings", open_menu_display, NULL  },
-	{ "Device Info",      open_device_info,  NULL  },
-	{ "Channels",         stub_item,         "N/A" },
-};
-
-/* Cycles through a small preset table on each OK press; real driver call. */
-static char          s_squelch_val_buf[8] = "55";
-static const uint8_t squelch_presets[] = { 30, 45, 55, 70, 85 };
-static uint8_t        s_squelch_idx = 2; /* index of 55, matches the boot default */
-
-static void squelch_cycle(void)
-{
-	s_squelch_idx = (uint8_t)((s_squelch_idx + 1) % ARRAY_SIZE(squelch_presets));
-
-	uint8_t level = squelch_presets[s_squelch_idx];
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-	int rc = api->set_squelch(trx, level);
-
-	if (rc < 0) {
-		LOG_WRN("set_squelch(%u) failed: %d", level, rc);
-	}
-	snprintf(s_squelch_val_buf, sizeof(s_squelch_val_buf), "%u", level);
-	ui_set_squelch_threshold(level);
-}
-
-/* Toggles 25K/12.5K on each OK press; real driver call. */
-static char s_bw_val_buf[8] = "25K";
-static bool s_bw_is_25k = true;
-
-static void bandwidth_cycle(void)
-{
-	s_bw_is_25k = !s_bw_is_25k;
-
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-	int rc = api->set_bandwidth(trx, s_bw_is_25k ? RADIO_BW_25K : RADIO_BW_12K5);
-
-	if (rc < 0) {
-		LOG_WRN("set_bandwidth failed: %d", rc);
-	}
-	snprintf(s_bw_val_buf, sizeof(s_bw_val_buf), "%s", s_bw_is_25k ? "25K" : "12.5K");
-	ui_set_bandwidth_str(s_bw_val_buf);
-}
-
-/* Cycles through the preset step-size table on each OK press. */
-static void step_cycle(void)
-{
-	s_step_idx = (uint8_t)((s_step_idx + 1) % ARRAY_SIZE(step_presets_hz));
-	snprintf(s_step_val_buf, sizeof(s_step_val_buf), "%s",
-		 step_preset_labels[s_step_idx]);
-}
-
-static const menu_item_t radio_items[] = {
-	{ "Squelch",   squelch_cycle,   s_squelch_val_buf },
-	{ "Volume",    stub_item,       "7 %"             },
-	{ "Bandwidth", bandwidth_cycle, s_bw_val_buf       },
-	{ "Step",      step_cycle,      s_step_val_buf     },
-	{ "CTCSS/DCS", stub_item,       "Off"              },
-};
-
-static const menu_item_t display_items[] = {
-	{ "Brightness",     stub_item, "100%" },
-	{ "Screen timeout", stub_item, "30s"  },
-};
-
-static void prepare_menu_main(void)
-{
-	screen_menu_prepare("MENU", main_items, ARRAY_SIZE(main_items));
-}
-
-static void prepare_menu_radio(void)
-{
-	screen_menu_prepare("RADIO", radio_items, ARRAY_SIZE(radio_items));
-}
-
-static void prepare_menu_display(void)
-{
-	screen_menu_prepare("DISPLAY", display_items, ARRAY_SIZE(display_items));
 }

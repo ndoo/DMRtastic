@@ -45,5 +45,5 @@ static void lvgl_thread(void *a, void *b, void *c)
 	}
 }
 
-K_THREAD_DEFINE(lvgl_tid, 4096, lvgl_thread, NULL, NULL, NULL,
+K_THREAD_DEFINE(lvgl_tid, 8192, lvgl_thread, NULL, NULL, NULL,
 		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);

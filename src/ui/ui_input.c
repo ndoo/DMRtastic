@@ -2,12 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 /*
- * Input bridge — the only place raw Zephyr input events turn into
- * ui_action_t. Screen/overlay code never sees a key code or GPIO.
- *
- * Sources: keypad matrix + SK1/SK2 (drivers/kbd_matrix_shared_bus, via its
- * input-keymap child node), PTT (ptt_buttons gpio-keys), rotary encoder and
- * volume pot (Commit 3 — INPUT_EV_REL/INPUT_EV_ABS below are stubs here).
+ * Input bridge — the only place raw Zephyr input events turn into ui_action_t.
+ * Sources: keypad matrix + SK1/SK2, PTT gpio-keys, rotary encoder, volume pot.
  */
 
 #include <zephyr/kernel.h>
@@ -36,39 +32,8 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 static int64_t s_sk1_press_uptime;
 
-/*
- * Volume pot hysteresis, operating on the pot's native calibrated ADC
- * reading (vol_axis_ch's in-min..in-max span, out-min/out-max mirror it
- * exactly -- see the board DTS) rather than a rescaled percent. Keeping
- * the native value all the way from the axis event through to ui.c means
- * the taper LUT and the hardware volume each round down from it
- * independently at their own point of use, instead of both being capped by
- * one early rescaling choice.
- *
- * The STM32F405's basic ADC peripheral has no hardware oversampler
- * (zephyr,oversampling errors out with -ENOTSUP on every read) and
- * zephyr,acquisition-time is already at its maximum (480 ticks), so there's
- * no simpler ADC-level knob to reduce reading noise -- report a new value
- * only once it moves at least this far from the last one actually applied,
- * so it settles instead of flip-flopping. analog-axis's own in-deadzone is
- * a *center* deadzone (joystick-style) and doesn't apply to a slider's full
- * range, hence doing this at the application layer.
- *
- * The noise that motivated this (CDC log capture: oscillating between two
- * adjacent steps with the pot held still) was specifically observed near
- * the physical maximum -- not in the low end of the range, where the
- * audio-taper reverse-mapping LUT (ui.c) is steepest and most sensitive to
- * gate width. Gate width is derived as 1% of the calibrated span rather
- * than hardcoded, so it tracks in-min/in-max if those are ever retuned; if
- * flicker reappears anywhere, widen the 100 divisor below rather than
- * re-deriving it from scratch.
- *
- * Direction-aware exception near the extremes: a step that moves *toward*
- * either end of the range while already within the gate's width of it
- * bypasses the gate, so the ends of the range are always reachable -- but
- * a step *away* from an extreme still needs the full gate, so it doesn't
- * slide back down/up on noise alone.
- */
+/* Volume pot hysteresis: reports a new raw reading only once it moves far enough from the last applied one,
+ * with a direction-aware exception so the range extremes stay reachable. See README for the full rationale. */
 #define VOLUME_RAW_MIN     DT_PROP(DT_NODELABEL(vol_axis_ch), in_min)
 #define VOLUME_RAW_MAX     DT_PROP(DT_NODELABEL(vol_axis_ch), in_max)
 #define VOLUME_HYSTERESIS  ((VOLUME_RAW_MAX - VOLUME_RAW_MIN) / 100)
@@ -97,6 +62,7 @@ static bool digit_action_for(uint16_t code, ui_action_t *action)
 	}
 }
 
+/** Translates a keypad/SK/PTT input event into ui_action_t, handling SK1's long-press debounce. */
 static void handle_key_event(const struct input_event *evt)
 {
 	bool pressed = evt->value != 0;
@@ -148,6 +114,7 @@ static void handle_key_event(const struct input_event *evt)
 	}
 }
 
+/** Zephyr input callback: dispatches key, encoder, and volume-pot events to ui_action_t. */
 static void ui_input_event_cb(struct input_event *evt, void *user_data)
 {
 	ARG_UNUSED(user_data);
@@ -163,15 +130,10 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 		break;
 	case INPUT_EV_REL:
 		if (evt->code == INPUT_REL_Y) {
-			/*
-			 * evt->value is the net quadrature count since the
-			 * last report (gpio_qdec's steps-per-period divides
-			 * this down to whole detents) -- usually +-1, but a
-			 * fast spin can coalesce more than one detent into a
-			 * single event, so post one action per detent rather
-			 * than dropping the extra distance.
-			 */
-			ui_action_t action = evt->value > 0 ? UI_ACTION_DOWN : UI_ACTION_UP;
+			/* evt->value is the net quadrature count (whole detents) since the
+			 * last report; post one action per detent rather than dropping excess. */
+			ui_action_t action = evt->value > 0 ? UI_ACTION_ENCODER_CCW
+							    : UI_ACTION_ENCODER_CW;
 			int32_t count = evt->value < 0 ? -evt->value : evt->value;
 
 			for (int32_t i = 0; i < count; i++) {

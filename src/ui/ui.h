@@ -19,17 +19,20 @@
 /* ---------- Screen IDs -------------------------------------------------- */
 
 /*
- * Each ID maps to a screen_ops_t row in ui.c. IDs marked "stub" are reserved
- * to keep enum values stable; their ops entries have NULL create/destroy/update
- * and will log an error if pushed.
+ * meshtastic-device-ui convention: no modal push/pop screens. SCREEN_BOOT is
+ * the one exception (a genuine one-shot transient, created then destroyed
+ * exactly once at startup). Every other screen is a static top-level frame:
+ * created once at ui_init() and never destroyed again, shown/hidden via
+ * ui_push_screen()/ui_pop_screen() (naming kept for minimal diff, but these
+ * no longer create/destroy anything past boot — see ui.c).
+ *
+ * IDs marked "stub" are reserved to keep enum values stable; their ops
+ * entries have NULL create/update and will log a warning if shown.
  */
 typedef enum {
 	SCREEN_BOOT = 0,      /* splash — auto-advances to FM_VFO after 2 s   */
 	SCREEN_FM_VFO,        /* FM direct-frequency operating screen          */
-	SCREEN_MENU_MAIN,     /* top-level menu list                           */
-	SCREEN_MENU_RADIO,    /* Radio Settings sub-menu                       */
-	SCREEN_MENU_DISPLAY,  /* Display Settings sub-menu                     */
-	SCREEN_DEVICE_INFO,   /* firmware version, uptime, raw RSSI            */
+	SCREEN_SETTINGS,      /* Radio/Display/Info tabview (screen_settings.c)*/
 	/* -- reserved stubs (not implemented yet) -- */
 	SCREEN_FM_CHANNEL,    /* FM channel mode (needs codeplug)              */
 	SCREEN_DMR_VFO,       /* DMR direct-frequency (needs HR-C6000 DMR)    */
@@ -44,14 +47,26 @@ typedef enum {
 /*
  * Device-agnostic action codes. The input bridge (ui_input.c) translates
  * DTS gpio-keys zephyr,code values to these before posting via ui_post_action.
- * Screen handlers only ever see ui_action_t — never raw key codes or GPIOs.
+ *
+ * OpenGD77 convention: physical Up/Down keys always *navigate* (row focus,
+ * tab switching) — handled natively by LVGL's lv_group/lv_indev system (see
+ * ui_init()) and never travel through ui_action_t at all. The rotary
+ * encoder instead *adjusts the currently-focused setting* directly
+ * (UI_ACTION_ENCODER_CW/CCW) — it deliberately has no lv_group binding, so
+ * turning it never moves focus. UI_ACTION_UP/DOWN/OK still exist for
+ * screens with no group members at all (FM VFO's direct frequency step,
+ * still reachable via both the physical Up/Down keys and the encoder — see
+ * fm_vfo_handle_action() in ui.c). Back stays an action deliberately: it
+ * means "leave this frame," which doesn't generalize the way PREV/NEXT does
+ * within one frame.
  */
 typedef enum {
-	UI_ACTION_MENU,        /* open/close main menu                  */
-	UI_ACTION_BACK,        /* pop screen (Red / Back key)           */
-	UI_ACTION_UP,          /* scroll / increment                    */
-	UI_ACTION_DOWN,        /* scroll / decrement                    */
-	UI_ACTION_OK,          /* confirm / push child screen (Green)   */
+	UI_ACTION_BACK,        /* leave the current frame (Red / Back key) */
+	UI_ACTION_UP,          /* non-widget-list use only (e.g. VFO step)  */
+	UI_ACTION_DOWN,        /* non-widget-list use only (e.g. VFO step)  */
+	UI_ACTION_OK,          /* non-widget-list use only (e.g. open Settings) */
+	UI_ACTION_ENCODER_CW,  /* rotary encoder: adjust focused setting up   */
+	UI_ACTION_ENCODER_CCW, /* rotary encoder: adjust focused setting down */
 	UI_ACTION_VOL_UP,      /* volume up — triggers volume overlay   */
 	UI_ACTION_VOL_DN,      /* volume down — triggers volume overlay */
 	UI_ACTION_PTT,         /* push-to-talk pressed                  */
@@ -85,15 +100,20 @@ void ui_tick(void);
 
 /* ---------- Navigation -------------------------------------------------- */
 
-/* Push a new screen; previous screen stays alive on the stack (Green/OK). */
+/*
+ * Show a static top-level frame (Green/OK) — hides the currently-shown
+ * frame and reveals the target; both already exist (created once at
+ * ui_init()). No allocation, no lv_obj_create()/lv_obj_delete().
+ */
 void ui_push_screen(screen_id_t id);
 
-/* Destroy the top screen and restore the previous one (Back/Red). */
+/* Hide the current frame and restore the previous one (Back/Red). */
 void ui_pop_screen(void);
 
 /*
- * Flush the entire stack and load a single screen.
- * Used for mode changes: boot → FM VFO, VFO ↔ Channel.
+ * One-time bootstrap transition: destroys the (genuinely transient) boot
+ * splash and shows the given static frame for the first time. Not used for
+ * any other navigation — see ui_push_screen()/ui_pop_screen() for that.
  */
 void ui_switch_screen(screen_id_t id);
 

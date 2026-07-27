@@ -136,6 +136,36 @@ deliberately never called afterwards: on STM32F4 I2C v1, the runtime
 reconfigure path leaves the event interrupt disabled — a silicon/driver
 errata, not a bug in this code.
 
+### Volume pot hysteresis (`src/ui/ui_input.c`)
+
+Volume-pot handling operates on the pot's native calibrated ADC reading
+(`vol_axis_ch`'s `in-min`/`in-max` span) rather than a rescaled percent, so
+the taper LUT and the hardware volume (`src/ui/ui.c`) each round down from
+it independently at their own point of use instead of both being capped by
+one early rescaling choice.
+
+The STM32F405's basic ADC peripheral has no hardware oversampler
+(`zephyr,oversampling` errors out with `-ENOTSUP`) and
+`zephyr,acquisition-time` is already at its maximum (480 ticks), so there's
+no simpler ADC-level knob to reduce reading noise. A new value is reported
+only once it moves at least a hysteresis gate's width from the last one
+actually applied, so the display settles instead of flip-flopping.
+`analog-axis`'s own `in-deadzone` is a *center* deadzone (joystick-style)
+and doesn't apply to a slider's full range, hence handling this at the
+application layer instead.
+
+The noise that motivated this (observed via CDC log capture: oscillating
+between two adjacent steps with the pot held still) was specifically near
+the physical maximum — not the low end, where the audio-taper
+reverse-mapping LUT is steepest and most sensitive to gate width. Gate
+width is derived as 1% of the calibrated span rather than hardcoded, so it
+tracks `in-min`/`in-max` if those are ever retuned.
+
+Near the extremes, a step that moves *toward* either end of the range while
+already within the gate's width of it bypasses the gate, so the ends of the
+range stay reachable — but a step *away* from an extreme still needs the
+full gate, so it doesn't slide back on noise alone.
+
 ## License
 
 [MIT](LICENSE)

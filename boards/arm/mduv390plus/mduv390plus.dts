@@ -10,6 +10,7 @@
 #include <zephyr/dt-bindings/input/keymap.h>
 #include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/display/panel.h>
+#include <zephyr/dt-bindings/lvgl/lvgl.h>
 
 /* Not yet in this Zephyr version's input-event-codes.h; matches Linux's KEY_NUMERIC_STAR/POUND,
  * guarded in case a future update adds them. */
@@ -136,9 +137,12 @@
 		zephyr,axis = <INPUT_REL_Y>;
 	};
 
-	lvgl_encoder: lvgl-encoder-input {
-		compatible = "zephyr,lvgl-encoder-input";
-		rotation-input-code = <INPUT_REL_Y>;
+	/* Up/Down/Enter feed LVGL's group-focus nav directly (meshtastic-device-ui convention, one shared lv_group);
+	 * Back stays a cross-frame action in ui.c. The rotary encoder has no lv_group binding -- it always adjusts the focused setting instead (ui_input.c). */
+	lvgl_keypad: lvgl-keypad-input {
+		compatible = "zephyr,lvgl-keypad-input";
+		input-codes = <INPUT_KEY_UP INPUT_KEY_DOWN INPUT_KEY_ENTER>;
+		lvgl-codes = <LV_KEY_PREV LV_KEY_NEXT LV_KEY_ENTER>;
 	};
 
 	vol_axis: vol_axis {
