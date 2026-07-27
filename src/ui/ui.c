@@ -136,15 +136,25 @@ void ui_post_action(ui_action_t action)
  * not a discrete event — only the most recent value before the next
  * ui_tick() matters.
  */
-K_MSGQ_DEFINE(ui_vol_events, sizeof(uint8_t), 1, 1);
+K_MSGQ_DEFINE(ui_vol_events, sizeof(uint16_t), 1, 1);
 
-void ui_post_volume_abs(uint8_t pct)
+/* vol_axis_ch's out-min/out-max mirror in-min/in-max exactly (board DTS). */
+#define VOL_AXIS_MIN  DT_PROP(DT_NODELABEL(vol_axis_ch), in_min)
+#define VOL_AXIS_MAX  DT_PROP(DT_NODELABEL(vol_axis_ch), in_max)
+#define VOL_AXIS_SPAN (VOL_AXIS_MAX - VOL_AXIS_MIN)
+
+/* ~7% of the calibrated span per VOL_UP/VOL_DN key press. */
+#define VOLUME_STEP_RAW (VOL_AXIS_SPAN * 7 / 100)
+
+void ui_post_volume_abs(uint16_t raw)
 {
-	if (pct > 100) {
-		pct = 100;
+	if (raw > VOL_AXIS_MAX) {
+		raw = VOL_AXIS_MAX;
+	} else if (raw < VOL_AXIS_MIN) {
+		raw = VOL_AXIS_MIN;
 	}
 	(void)k_msgq_purge(&ui_vol_events);
-	(void)k_msgq_put(&ui_vol_events, &pct, K_NO_WAIT);
+	(void)k_msgq_put(&ui_vol_events, &raw, K_NO_WAIT);
 }
 
 /* ---------- 200 ms update timer ----------------------------------------- */
@@ -160,10 +170,17 @@ static void update_timer_cb(lv_timer_t *t)
 
 /* ---------- Action dispatch --------------------------------------------- */
 
-static uint8_t s_volume_pct = 50; /* runtime volume state */
+static uint16_t s_volume_raw = (VOL_AXIS_MIN + VOL_AXIS_MAX) / 2; /* runtime volume state */
 
-static void radio_set_volume_pct(uint8_t pct)
+/*
+ * Hardware volume has no taper correction -- the pot's own taper is what
+ * gives volume control its natural feel. Just linearly rescale the native
+ * raw reading down to the 0-100 percent the driver's API expects.
+ */
+static void radio_set_volume_pct(uint16_t raw)
 {
+	uint8_t pct = (uint8_t)DIV_ROUND_CLOSEST((uint32_t)(raw - VOL_AXIS_MIN) * 100,
+						  VOL_AXIS_SPAN);
 	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
 	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
 	int rc = api->set_volume(trx, pct);
@@ -173,11 +190,63 @@ static void radio_set_volume_pct(uint8_t pct)
 	}
 }
 
-static void apply_volume(uint8_t pct)
+/*
+ * Reverse-mapping taper LUTs — 11-point piecewise-linear lookups (fraction
+ * of the pot's native raw span, at checkpoints 0/10,...,10/10 ->
+ * perceptually-linear display %). Which one applies is chosen at compile
+ * time by the AT1846S node's volume-taper DT property (see
+ * auctus,at1846s.yaml).
+ */
+static const uint8_t taper_lut_linear[11] = {
+	0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+};
+
+/*
+ * Standard "A" (audio/log) taper: industry convention is roughly 10-15% of
+ * full output at 50% rotation (this board measured ~14% on-hardware),
+ * modeled as two linear segments meeting at that point rather than a
+ * smooth analytic curve — matching how these pots are actually
+ * manufactured (two overlapping resistive tracks).
+ */
+static const uint8_t taper_lut_audio_a[11] = {
+	0, 42, 55, 60, 66, 72, 77, 83, 89, 94, 100,
+};
+
+#if DT_ENUM_HAS_VALUE(DT_NODELABEL(at1846s), volume_taper, audio_a)
+static const uint8_t *const s_volume_taper_lut = taper_lut_audio_a;
+#else
+static const uint8_t *const s_volume_taper_lut = taper_lut_linear;
+#endif
+
+static uint8_t volume_display_pct(uint16_t raw)
 {
-	s_volume_pct = pct;
-	radio_set_volume_pct(pct);
-	ui_overlay_volume_show(pct);
+	if (raw >= VOL_AXIS_MAX) {
+		return s_volume_taper_lut[10];
+	}
+
+	/*
+	 * Scale the raw-minus-min offset by 10 *before* dividing by the span,
+	 * so the checkpoint index and the in-segment fraction both come out
+	 * of one exact calculation -- no need for the span to itself be a
+	 * multiple of 10 (it isn't: vol_axis_ch's calibrated span is 1936
+	 * counts). DIV_ROUND_CLOSEST below then rounds the final interpolated
+	 * value instead of the truncating '/' that used to bias every step
+	 * down by up to just under 1 point.
+	 */
+	uint32_t pos10 = (uint32_t)(raw - VOL_AXIS_MIN) * 10;
+	uint32_t idx = pos10 / VOL_AXIS_SPAN;
+	uint32_t rem = pos10 % VOL_AXIS_SPAN;
+	uint8_t lo = s_volume_taper_lut[idx];
+	uint8_t hi = s_volume_taper_lut[idx + 1];
+
+	return (uint8_t)(lo + DIV_ROUND_CLOSEST((hi - lo) * rem, VOL_AXIS_SPAN));
+}
+
+static void apply_volume(uint16_t raw)
+{
+	s_volume_raw = raw;
+	radio_set_volume_pct(raw);
+	ui_overlay_volume_show(volume_display_pct(raw));
 }
 
 /*
@@ -222,10 +291,12 @@ static void dispatch_action(ui_action_t action)
 		}
 		break;
 	case UI_ACTION_VOL_UP:
-		apply_volume(s_volume_pct <= 93 ? s_volume_pct + 7 : 100);
+		apply_volume(s_volume_raw <= VOL_AXIS_MAX - VOLUME_STEP_RAW
+				     ? s_volume_raw + VOLUME_STEP_RAW : VOL_AXIS_MAX);
 		break;
 	case UI_ACTION_VOL_DN:
-		apply_volume(s_volume_pct >= 7 ? s_volume_pct - 7 : 0);
+		apply_volume(s_volume_raw >= VOL_AXIS_MIN + VOLUME_STEP_RAW
+				     ? s_volume_raw - VOLUME_STEP_RAW : VOL_AXIS_MIN);
 		break;
 	case UI_ACTION_OK:
 	case UI_ACTION_UP:
@@ -311,13 +382,13 @@ void ui_init(void)
 void ui_tick(void)
 {
 	ui_action_t action;
-	uint8_t vol_pct;
+	uint16_t vol_raw;
 
 	while (k_msgq_get(&ui_events, &action, K_NO_WAIT) == 0) {
 		dispatch_action(action);
 	}
-	if (k_msgq_get(&ui_vol_events, &vol_pct, K_NO_WAIT) == 0) {
-		apply_volume(vol_pct);
+	if (k_msgq_get(&ui_vol_events, &vol_raw, K_NO_WAIT) == 0) {
+		apply_volume(vol_raw);
 	}
 }
 

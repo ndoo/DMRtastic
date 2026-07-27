@@ -1,20 +1,13 @@
 // Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
 //
-// Interactive register shell over USB CDC.
-//
-// Commands (all values hex, no 0x prefix needed):
-//   at r <reg>              read AT1846S 16-bit register
-//   at w <reg> <hi> <lo>   write AT1846S register
-//   hc r <page> <reg>      read HR-C6000 register
-//   hc w <page> <reg> <val> write HR-C6000 register
-//   rssi                   read AT1846S RSSI (0x1B)
-//   help                   list commands
+// Interactive register shell over USB CDC — see cmd_help() for the command list.
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/reboot.h>
 #include <zephyr/sys/ring_buffer.h>
 
 #include <stdarg.h>
@@ -38,6 +31,7 @@ static const struct device *const bb =
 RING_BUF_DECLARE(rx_ringbuf, RX_BUF_SIZE);
 static K_SEM_DEFINE(rx_sem, 0, 1);
 
+/** UART ISR: drain the RX FIFO into rx_ringbuf and wake shell_getc(). */
 static void uart_irq_cb(const struct device *dev, void *user_data)
 {
 	ARG_UNUSED(user_data);
@@ -90,6 +84,7 @@ static void shell_printf(const char *fmt, ...)
 
 /* ---- command handlers ------------------------------------------------ */
 
+/** Parse a bare hex byte (no 0x prefix); returns false on any malformed input. */
 static bool parse_hex8(const char *s, uint8_t *out)
 {
 	if (!s || *s == '\0') {
@@ -105,6 +100,7 @@ static bool parse_hex8(const char *s, uint8_t *out)
 	return true;
 }
 
+/** "at r <reg>" / "at w <reg> <hi> <lo>" — read/write an AT1846S register. */
 static void cmd_at(char *args)
 {
 	const struct radio_trx_api *api =
@@ -148,6 +144,7 @@ static void cmd_at(char *args)
 	}
 }
 
+/** "hc r <page> <reg>" / "hc w <page> <reg> <val>" — read/write an HR-C6000 register. */
 static void cmd_hc(char *args)
 {
 	const struct radio_bb_api *api =
@@ -207,6 +204,14 @@ static void cmd_rssi(void)
 	}
 }
 
+static void cmd_reboot(void)
+{
+	shell_puts("rebooting...\r\n");
+	/* Let the bytes above actually leave the FIFO before reset. */
+	k_msleep(50);
+	sys_reboot(SYS_REBOOT_WARM);
+}
+
 static void cmd_help(void)
 {
 	shell_puts(
@@ -215,10 +220,12 @@ static void cmd_help(void)
 		"hc r <page> <reg>        read HR-C6000 reg\r\n"
 		"hc w <page> <reg> <val>  write HR-C6000 reg\r\n"
 		"rssi                     AT1846S 0x1B noise/signal\r\n"
+		"reboot                   warm-reset the MCU\r\n"
 		"help                     this list\r\n"
 	);
 }
 
+/** Route one input line to its command handler by first token. */
 static void dispatch(char *line)
 {
 	char *cmd = strtok(line, " \t");
@@ -234,6 +241,8 @@ static void dispatch(char *line)
 		cmd_hc(rest ? rest : "");
 	} else if (strcmp(cmd, "rssi") == 0) {
 		cmd_rssi();
+	} else if (strcmp(cmd, "reboot") == 0) {
+		cmd_reboot();
 	} else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
 		cmd_help();
 	} else {
@@ -245,6 +254,7 @@ static void dispatch(char *line)
 
 #define LINE_BUF 80
 
+/** Line-editing read loop: buffer chars until CR/LF, then dispatch(). */
 static void shell_radio_thread_fn(void *p1, void *p2, void *p3)
 {
 	ARG_UNUSED(p1);

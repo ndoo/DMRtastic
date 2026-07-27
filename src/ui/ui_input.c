@@ -13,8 +13,12 @@
 #include <zephyr/kernel.h>
 #include <zephyr/input/input.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/logging/log.h>
 
 #include "ui.h"
+
+LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 #ifndef INPUT_KEY_NUMERIC_STAR
 #define INPUT_KEY_NUMERIC_STAR  0x20a
@@ -31,6 +35,48 @@
 #define SK1_LONG_PRESS_MS 600
 
 static int64_t s_sk1_press_uptime;
+
+/*
+ * Volume pot hysteresis, operating on the pot's native calibrated ADC
+ * reading (vol_axis_ch's in-min..in-max span, out-min/out-max mirror it
+ * exactly -- see the board DTS) rather than a rescaled percent. Keeping
+ * the native value all the way from the axis event through to ui.c means
+ * the taper LUT and the hardware volume each round down from it
+ * independently at their own point of use, instead of both being capped by
+ * one early rescaling choice.
+ *
+ * The STM32F405's basic ADC peripheral has no hardware oversampler
+ * (zephyr,oversampling errors out with -ENOTSUP on every read) and
+ * zephyr,acquisition-time is already at its maximum (480 ticks), so there's
+ * no simpler ADC-level knob to reduce reading noise -- report a new value
+ * only once it moves at least this far from the last one actually applied,
+ * so it settles instead of flip-flopping. analog-axis's own in-deadzone is
+ * a *center* deadzone (joystick-style) and doesn't apply to a slider's full
+ * range, hence doing this at the application layer.
+ *
+ * The noise that motivated this (CDC log capture: oscillating between two
+ * adjacent steps with the pot held still) was specifically observed near
+ * the physical maximum -- not in the low end of the range, where the
+ * audio-taper reverse-mapping LUT (ui.c) is steepest and most sensitive to
+ * gate width. Gate width is derived as 1% of the calibrated span rather
+ * than hardcoded, so it tracks in-min/in-max if those are ever retuned; if
+ * flicker reappears anywhere, widen the 100 divisor below rather than
+ * re-deriving it from scratch.
+ *
+ * Direction-aware exception near the extremes: a step that moves *toward*
+ * either end of the range while already within the gate's width of it
+ * bypasses the gate, so the ends of the range are always reachable -- but
+ * a step *away* from an extreme still needs the full gate, so it doesn't
+ * slide back down/up on noise alone.
+ */
+#define VOLUME_RAW_MIN     DT_PROP(DT_NODELABEL(vol_axis_ch), in_min)
+#define VOLUME_RAW_MAX     DT_PROP(DT_NODELABEL(vol_axis_ch), in_max)
+#define VOLUME_HYSTERESIS  ((VOLUME_RAW_MAX - VOLUME_RAW_MIN) / 100)
+#define VOLUME_RAW_UNSET   0xFFFFU
+
+BUILD_ASSERT(VOLUME_RAW_MAX < VOLUME_RAW_UNSET, "vol_axis_ch in-max too large for sentinel");
+
+static uint16_t s_last_stable_vol_raw = VOLUME_RAW_UNSET;
 
 static bool digit_action_for(uint16_t code, ui_action_t *action)
 {
@@ -106,6 +152,11 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 {
 	ARG_UNUSED(user_data);
 
+	if (evt->type == INPUT_EV_KEY && evt->value != 0) {
+		LOG_DBG("key event: code=%u value=%d sync=%d",
+			evt->code, evt->value, evt->sync);
+	}
+
 	switch (evt->type) {
 	case INPUT_EV_KEY:
 		handle_key_event(evt);
@@ -117,7 +168,24 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 		break;
 	case INPUT_EV_ABS:
 		if (evt->code == INPUT_ABS_THROTTLE) {
-			ui_post_volume_abs((uint8_t)evt->value);
+			uint16_t raw = (uint16_t)evt->value;
+			int diff = (int)raw - (int)s_last_stable_vol_raw;
+			bool climbing_to_max = diff > 0 &&
+				raw >= VOLUME_RAW_MAX - VOLUME_HYSTERESIS;
+			bool climbing_to_min = diff < 0 &&
+				raw <= VOLUME_RAW_MIN + VOLUME_HYSTERESIS;
+
+			LOG_DBG("vol_axis raw: %u (%u-%u)", raw, VOLUME_RAW_MIN, VOLUME_RAW_MAX);
+
+			if (diff < 0) {
+				diff = -diff;
+			}
+			if (s_last_stable_vol_raw == VOLUME_RAW_UNSET ||
+			    diff >= VOLUME_HYSTERESIS ||
+			    climbing_to_max || climbing_to_min) {
+				s_last_stable_vol_raw = raw;
+				ui_post_volume_abs(raw);
+			}
 		}
 		break;
 	default:

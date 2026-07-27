@@ -119,10 +119,16 @@ void        ui_set_bandwidth_str(const char *bw);
 void ui_post_action(ui_action_t action);
 
 /*
- * Post an absolute volume position (0-100), e.g. from the volume pot.
- * Overwrite-latest: only the most recent value before the next ui_tick()
- * matters. Safe to call from any thread context; never from hard-ISR.
+ * Post an absolute volume position as the volume pot's native calibrated
+ * ADC reading (vol_axis_ch's in-min..in-max span -- see the board DTS;
+ * out-min/out-max mirror it exactly, so this is exactly what the axis
+ * reports, with no intermediate rescaling). Kept native all the way
+ * through so the taper LUT and hardware volume each round down from it
+ * independently at their own point of use in ui.c, instead of both being
+ * capped by one early rescaling choice. Overwrite-latest: only the most
+ * recent value before the next ui_tick() matters. Safe to call from any
+ * thread context; never from hard-ISR.
  */
-void ui_post_volume_abs(uint8_t pct);
+void ui_post_volume_abs(uint16_t raw);
 
 #endif /* DMRTASTIC_UI_H_ */

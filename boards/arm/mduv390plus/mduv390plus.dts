@@ -20,6 +20,11 @@
 #define INPUT_KEY_NUMERIC_POUND 0x20b
 #endif
 
+/* Calibrated ADC span, shared by vol_axis's in-min/max and out-min/max so it reports the native
+ * value with no rescaling and the two can never drift apart. */
+#define VOL_AXIS_ADC_MIN 24
+#define VOL_AXIS_ADC_MAX 1960
+
 /*
  * TYT MD-UV390 PLUS 10W GPS — STM32F405VGT6 (LQFP100)
  */
@@ -139,12 +144,16 @@
 	vol_axis: vol_axis {
 		compatible = "analog-axis";
 		poll-period-ms = <50>;
-		axis-volume {
+		vol_axis_ch: axis-volume {
 			io-channels = <&adc1 0>;
-			in-min  = <24>;
-			in-max  = <2025>;
-			out-min = <0>;
-			out-max = <100>;
+			in-min  = <VOL_AXIS_ADC_MIN>;
+			/* Measured via CDC log capture (in-max temporarily uncapped to 4095): raw pct peaked at exactly
+			 * 48%, giving an ADC ceiling of ~1978 (24 + 0.48*4071); hysteresis (ui_input.c) clamps the rest to 100%. */
+			in-max  = <VOL_AXIS_ADC_MAX>;
+			/* out-min/max mirror in-min/max (same #define, can't drift) so the axis reports the native ADC
+			 * value unscaled -- every transform (taper LUT, linear scale) happens once in ui.c, not here. */
+			out-min = <VOL_AXIS_ADC_MIN>;
+			out-max = <VOL_AXIS_ADC_MAX>;
 			zephyr,axis = <INPUT_ABS_THROTTLE>;
 		};
 	};
@@ -335,6 +344,9 @@ zephyr_udc0: &usbotg_fs {
 		spk-mute-gpios     = <&gpiob 8 GPIO_ACTIVE_HIGH>;
 		tx-freq-offset-hz = <0>;
 		squelch-mode = "software";
+		/* Volume pot (PA0) is an audio-taper element -- midpoint measured ~14% on hardware, matching the
+		 * standard "A" taper's 10-15% band. The reverse-mapping LUT for "audio-a" lives in src/ui/ui.c, not here. */
+		volume-taper = "audio-a";
 	};
 };
 
@@ -352,6 +364,8 @@ zephyr_udc0: &usbotg_fs {
 		zephyr,reference       = "ADC_REF_INTERNAL";
 		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_TICKS, 480)>;
 		zephyr,resolution      = <12>;
+		/* zephyr,oversampling is NOT usable here -- STM32F405's basic ADC has no hardware oversampler; setting
+		 * it returns -ENOTSUP on every read, silently killing this channel. Noise smoothing lives in ui_input.c instead. */
 	};
 
 	channel@1 {

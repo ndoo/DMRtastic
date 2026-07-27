@@ -93,3 +93,27 @@ properties:
     description: |
       Fixed TX frequency offset applied by the driver to compensate
       systematic VCO pull. Default 0; some boards need a few kHz.
+
+  volume-taper:
+    type: string
+    enum: ["linear", "audio-a"]
+    default: "linear"
+    description: |
+      Which standard taper curve the volume pot follows. Selects one of a
+      small set of built-in reverse-mapping lookup tables in the UI layer
+      (src/ui/ui.c, see taper_lut_*) that convert the pot's raw 0-100%
+      reading back to a perceptually-linear percentage for display only --
+      set_volume() always receives the raw value unchanged, since the
+      pot's own taper is what gives volume control its natural feel; only
+      the overlay/status display is reverse-mapped.
+
+        linear:  identity mapping (no correction); for a linear-taper (B)
+                 pot.
+        audio-a: standard "A"/audio-log taper, approximated as the common
+                 industry two-linear-segment curve ("50% rotation ~= 10-15%
+                 of range") rather than a smooth analytic formula -- a
+                 pot's real response rarely matches one.
+
+      For a pot that doesn't fit either preset, add a new enum value here
+      plus a matching taper_lut_* table in ui.c rather than hand-deriving
+      numbers in DTS.
