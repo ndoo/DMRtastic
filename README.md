@@ -166,6 +166,71 @@ already within the gate's width of it bypasses the gate, so the ends of the
 range stay reachable — but a step *away* from an extreme still needs the
 full gate, so it doesn't slide back on noise alone.
 
+### Display init failure (`src/display.c`)
+
+LVGL's Zephyr auto-init skips registering a display whose underlying device
+failed `device_is_ready()` (e.g. the HX8353E's init returning an error) —
+`lv_display_get_default()` then returns `NULL` rather than failing some more
+direct way. `lv_theme_default_init()` doesn't expect that and previously
+crashed the whole system into an unhandled fault; the LVGL thread now bails
+out cleanly in that case instead, so a display-init failure only loses the
+UI — the radio keeps receiving independently (see `src/main.c`).
+
+### UI threading & frame lifecycle (`src/ui/ui.c`, `src/ui/ui.h`)
+
+All LVGL object access is confined to the LVGL thread (the one that calls
+`ui_tick()` and `lv_timer_handler()`). External contexts post `ui_action_t`
+events via `ui_post_action()`; `ui_tick()` drains them each iteration —
+this is the only place actions cross from the outside world into LVGL.
+
+Frames (FM VFO, Settings) are created exactly once at `ui_init()` and never
+destroyed — "navigation" is hiding the current frame and showing another,
+not create/destroy churn. `SCREEN_BOOT` is the one exception: a genuine
+one-shot transient torn down by `ui_switch_screen()` the first (and only)
+time it's called.
+
+Navigation follows a two-axis convention, applied consistently across every
+tabview (see also the Settings tabview note below): physical Up/Down always
+navigate (row focus, tab cycling); the rotary encoder never moves focus at
+all (no `lv_group` binding) and instead adjusts whatever's currently
+focused directly via `UI_ACTION_ENCODER_CW`/`CCW`.
+
+### Volume taper curve (`src/ui/ui.c`)
+
+Hardware volume has no taper correction — the pot's own taper gives volume
+control its natural feel; the raw reading is linearly rescaled to the
+0-100% the driver API expects. Display percentage, however, is reverse-
+mapped through an 11-point piecewise-linear LUT (checkpoints at
+0/10, 1/10, ..., 10/10 of the pot's native span) so the *displayed* value
+reads as perceptually linear. Which LUT applies is chosen at compile time
+by the AT1846S node's `volume-taper` DT property.
+
+The default "audio A" (log) taper models the industry-standard ~10-15%
+output at 50% rotation (this board measured ~14% on-hardware) as two linear
+segments meeting at that point, rather than a smooth analytic curve —
+matching how these pots are actually manufactured (two overlapping
+resistive tracks).
+
+`volume_display_pct()` scales the raw-minus-min offset by 10 *before*
+dividing by the span, so the checkpoint index and the in-segment fraction
+both come out of one exact calculation without requiring the span itself
+to be a multiple of 10 (it isn't: `vol_axis_ch`'s calibrated span is 1936
+counts). The final interpolated value is rounded (`DIV_ROUND_CLOSEST`)
+rather than truncated, which used to bias every step down by up to just
+under one point.
+
+### Settings tabview navigation (`src/ui/screens/screen_settings.c`)
+
+The Settings screen's two-level hierarchy (tabs, then rows within a tab)
+requires explicit group-membership management: `lv_tabview_set_active()`
+only scrolls the tab container into view, it doesn't hide inactive tabs'
+content. An earlier single flat group (tab buttons and the active tab's
+rows all navigable together) meant Up/Down's `PREV`/`NEXT` traversal could
+wander into off-screen rows from whichever tab wasn't showing. The fix
+keeps the two levels from ever sharing group membership: tab buttons are
+group members only at the tab level, the active tab's rows only at the row
+level, swapped explicitly on descend/ascend.
+
 ## License
 
 [MIT](LICENSE)

@@ -3,31 +3,7 @@
 
 /*
  * Screen manager — static top-level frames, meshtastic-device-ui convention.
- *
- * Threading boundary: all LVGL object access is confined to the LVGL thread
- * (the one that calls ui_tick() and lv_timer_handler()). External contexts
- * post ui_action_t events via ui_post_action(); ui_tick() drains them each
- * iteration. This is the only place in the firmware where actions cross from
- * the outside world into LVGL.
- *
- * Frames (FM VFO, Settings) are created exactly once at ui_init() and never
- * destroyed — "navigation" is hiding the current frame and showing another,
- * not create()/destroy() churn. SCREEN_BOOT is the one exception: a genuine
- * one-shot transient torn down by ui_switch_screen() the first (and only)
- * time it's called.
- *
- *   ui_push_screen(id) — Green/OK: show frame id, remember current for Back
- *   ui_pop_screen()    — Back/Red: hide current frame, restore the previous
- *   ui_switch_screen()  — one-time boot -> first frame transition only
- *
- * Row/tab navigation inside a frame (Settings) is native LVGL: every row and
- * tab-bar button is a member of one shared lv_group (see ui_init()), fed by
- * the zephyr,lvgl-keypad-input indev (DTS) — Up/Down always navigate.
- * The rotary encoder deliberately has no lv_group binding (OpenGD77
- * convention): it adjusts whatever's currently focused directly, via
- * UI_ACTION_ENCODER_CW/CCW (see screen_settings_handle_action()).
- * ui_action_t's UP/DOWN/OK only still matter for frames with no group
- * members at all — currently just FM VFO's direct frequency step.
+ * All LVGL access happens on the LVGL thread; see ui.h for the action-queue boundary.
  */
 
 #include "ui.h"
@@ -43,29 +19,27 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/display.h>
+#include <zephyr/drivers/gpio.h>
 #include <lvgl.h>
 #include <lvgl_input_device.h>
 #include <stdio.h>
 #include <string.h>
 
+#include <drivers/display/hx8353e.h>
 #include <drivers/radio/radio_transceiver.h>
 
 LOG_MODULE_REGISTER(app_ui, LOG_LEVEL_INF);
 
 /* ---------- Menu item definitions (defined early; frame_ops needs them) -- */
 
-/*
- * dir is always +1 or -1 here (see menu_item_t in screen_settings.h): +1 on
- * ENTER/click or an encoder CW turn, -1 on an encoder CCW turn. Adding
- * ARRAY_SIZE before the modulo keeps the result non-negative for dir=-1
- * without a full signed-modulo helper, since |dir| is always < count.
- */
+/* dir is always ±1 (see menu_item_t); + ARRAY_SIZE keeps the modulo non-negative for dir=-1. */
 
-/* Cycles through a small preset table; real driver call. */
 static char          s_squelch_val_buf[8] = "55";
 static const uint8_t squelch_presets[] = { 30, 45, 55, 70, 85 };
 static uint8_t        s_squelch_idx = 2; /* index of 55, matches the boot default */
 
+/** Cycles the squelch preset table and applies it to the AT1846S. */
 static void squelch_cycle(int8_t dir)
 {
 	s_squelch_idx = (uint8_t)(((int)s_squelch_idx + dir + ARRAY_SIZE(squelch_presets)) %
@@ -83,11 +57,10 @@ static void squelch_cycle(int8_t dir)
 	ui_set_squelch_threshold(level);
 }
 
-/* Toggles 25K/12.5K; real driver call. A 2-state toggle has no meaningful
- * "direction," so dir is ignored -- either way just flips it. */
 static char s_bw_val_buf[8] = "25K";
 static bool s_bw_is_25k = true;
 
+/** Toggles 25K/12.5K bandwidth on the AT1846S; dir is ignored (2-state toggle). */
 static void bandwidth_cycle(int8_t dir)
 {
 	ARG_UNUSED(dir);
@@ -115,7 +88,7 @@ uint32_t ui_get_step_hz(void)
 	return step_presets_hz[s_step_idx];
 }
 
-/* Cycles through the preset step-size table. */
+/** Cycles the VFO step-size preset table. */
 static void step_cycle(int8_t dir)
 {
 	s_step_idx = (uint8_t)(((int)s_step_idx + dir + ARRAY_SIZE(step_presets_hz)) %
@@ -130,6 +103,194 @@ static void stub_item(int8_t dir)
 	LOG_INF("item: not yet implemented");
 }
 
+/* PWM backlight via display_set_brightness() (0-255, tracked as percent).
+ * Floored at 10%: measured fully dark by 6% on this hardware. */
+#define BRIGHTNESS_MAX_PCT  100
+#define BRIGHTNESS_MIN_PCT   10
+#define BRIGHTNESS_STEP_PCT  10
+
+/* Off-level after the timeout below; 1-9% is skipped (same dead-zone reason as
+ * Brightness) and it's clamped a step below Brightness via backlight_off_ceiling(). */
+#define BACKLIGHT_OFF_STEP_PCT        10
+#define BACKLIGHT_OFF_STEP_SMALL_PCT   1
+#define BACKLIGHT_OFF_EDGE_BAND_PCT   10
+
+static char    s_backlight_off_val_buf[8] = "10%";
+static uint8_t s_backlight_off_pct = BRIGHTNESS_MIN_PCT;
+
+static char    s_brightness_val_buf[8] = "100%";
+static uint8_t s_brightness_pct = 100; /* matches boot default */
+
+/* Highest Off-level allowed: one dimming step below Brightness. */
+static uint8_t backlight_off_ceiling(void)
+{
+	return (s_brightness_pct > BACKLIGHT_OFF_STEP_PCT)
+		       ? (uint8_t)(s_brightness_pct - BACKLIGHT_OFF_STEP_PCT)
+		       : 0;
+}
+
+/** Steps display brightness by dir, clamping and re-clamping backlight off-level below it. */
+static void brightness_cycle(int8_t dir)
+{
+	int new_pct = (int)s_brightness_pct + (int)dir * BRIGHTNESS_STEP_PCT;
+
+	if (new_pct > BRIGHTNESS_MAX_PCT) {
+		new_pct = BRIGHTNESS_MAX_PCT;
+	} else if (new_pct < BRIGHTNESS_MIN_PCT) {
+		new_pct = BRIGHTNESS_MIN_PCT;
+	}
+	s_brightness_pct = (uint8_t)new_pct;
+
+	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
+	int rc = display_set_brightness(
+		disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)s_brightness_pct * 255, 100));
+
+	if (rc < 0) {
+		LOG_WRN("display_set_brightness(%u%%) failed: %d", s_brightness_pct, rc);
+	}
+	snprintf(s_brightness_val_buf, sizeof(s_brightness_val_buf), "%u%%", s_brightness_pct);
+
+	/* Re-clamp Off-level down if Brightness was just lowered past it. */
+	uint8_t off_ceiling = backlight_off_ceiling();
+
+	if (s_backlight_off_pct > off_ceiling) {
+		s_backlight_off_pct = off_ceiling;
+		snprintf(s_backlight_off_val_buf, sizeof(s_backlight_off_val_buf), "%u%%",
+			 s_backlight_off_pct);
+	}
+}
+
+/** Steps the backlight off-level, using a smaller step near the range edges. */
+static void backlight_off_level_cycle(int8_t dir)
+{
+	int new_pct;
+
+	if (dir > 0 && s_backlight_off_pct == 0) {
+		new_pct = BRIGHTNESS_MIN_PCT;
+	} else {
+		uint8_t step = (s_backlight_off_pct < BACKLIGHT_OFF_EDGE_BAND_PCT ||
+				s_backlight_off_pct > BRIGHTNESS_MAX_PCT - BACKLIGHT_OFF_EDGE_BAND_PCT)
+				       ? BACKLIGHT_OFF_STEP_SMALL_PCT
+				       : BACKLIGHT_OFF_STEP_PCT;
+		new_pct = (int)s_backlight_off_pct + (int)dir * step;
+
+		if (new_pct < BRIGHTNESS_MIN_PCT) {
+			new_pct = 0; /* skip the unreachable 1-9% zone */
+		}
+	}
+
+	int ceiling = (int)backlight_off_ceiling();
+
+	if (new_pct > ceiling) {
+		new_pct = ceiling;
+	}
+	s_backlight_off_pct = (uint8_t)new_pct;
+	snprintf(s_backlight_off_val_buf, sizeof(s_backlight_off_val_buf), "%u%%",
+		 s_backlight_off_pct);
+}
+
+/* Idle seconds before dimming to the off-level (see ui_note_activity()); 0 = never.
+ * Timeout only — no Auto/Squelch/Manual/Buttons mode picker. */
+#define SCREEN_TIMEOUT_MAX_S  30
+#define SCREEN_TIMEOUT_STEP_S  5
+
+static char    s_screen_timeout_val_buf[8] = "Off";
+static uint8_t s_screen_timeout_s;
+
+/** Steps the screen-dim idle timeout; 0 means never dim. */
+static void screen_dim_timeout_cycle(int8_t dir)
+{
+	int new_s = (int)s_screen_timeout_s + (int)dir * SCREEN_TIMEOUT_STEP_S;
+
+	if (new_s > SCREEN_TIMEOUT_MAX_S) {
+		new_s = SCREEN_TIMEOUT_MAX_S;
+	}
+	if (new_s < 0) {
+		new_s = 0;
+	}
+	s_screen_timeout_s = (uint8_t)new_s;
+
+	if (s_screen_timeout_s == 0) {
+		snprintf(s_screen_timeout_val_buf, sizeof(s_screen_timeout_val_buf), "Off");
+	} else {
+		snprintf(s_screen_timeout_val_buf, sizeof(s_screen_timeout_val_buf), "%us",
+			 s_screen_timeout_s);
+	}
+}
+
+static char s_invert_val_buf[8] = "Off";
+
+/** Sets screen invert on/off (dir>0 = on); set-semantics, not a toggle. */
+static void screen_invert_set(int8_t dir)
+{
+	bool on = dir > 0;
+	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
+	int rc = hx8353e_set_inverted(disp, on);
+
+	if (rc < 0) {
+		LOG_WRN("hx8353e_set_inverted(%d) failed: %d", on, rc);
+	}
+	snprintf(s_invert_val_buf, sizeof(s_invert_val_buf), "%s", on ? "On" : "Off");
+}
+
+/* Gates ui_overlay_volume_show()'s toast; volume itself still applies. */
+static char s_visual_volume_val_buf[8] = "On";
+static bool s_visual_volume_enabled = true;
+
+static void visual_volume_toggle(int8_t dir)
+{
+	ARG_UNUSED(dir);
+	s_visual_volume_enabled = !s_visual_volume_enabled;
+	snprintf(s_visual_volume_val_buf, sizeof(s_visual_volume_val_buf), "%s",
+		 s_visual_volume_enabled ? "On" : "Off");
+}
+
+/* Stored pref only; battery label is a fixed placeholder until ADC exists. */
+static char s_battery_unit_val_buf[8] = "%";
+static bool s_battery_unit_is_percent = true;
+
+static void battery_unit_toggle(int8_t dir)
+{
+	ARG_UNUSED(dir);
+	s_battery_unit_is_percent = !s_battery_unit_is_percent;
+	snprintf(s_battery_unit_val_buf, sizeof(s_battery_unit_val_buf), "%s",
+		 s_battery_unit_is_percent ? "%" : "V");
+}
+
+bool ui_get_battery_unit_is_percent(void)
+{
+	return s_battery_unit_is_percent;
+}
+
+/* Disabling forces both LEDs off; nothing lights them yet when enabled. */
+static const struct gpio_dt_spec led_green_spec = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+static const struct gpio_dt_spec led_red_spec   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+
+static char s_leds_enabled_val_buf[8] = "On";
+
+/** Sets LEDs enabled on/off (dir>0 = on); disabling force-clears both LED GPIOs. */
+static void leds_enabled_set(int8_t dir)
+{
+	bool on = dir > 0;
+
+	if (!on) {
+		int rc1 = gpio_pin_set_dt(&led_green_spec, 0);
+		int rc2 = gpio_pin_set_dt(&led_red_spec, 0);
+
+		if (rc1 < 0 || rc2 < 0) {
+			LOG_WRN("LED force-off failed: %d/%d", rc1, rc2);
+		}
+	}
+	snprintf(s_leds_enabled_val_buf, sizeof(s_leds_enabled_val_buf), "%s", on ? "On" : "Off");
+}
+
+/* Permanently blocked (no GPS/RTC/contacts/DMR); shown as N/A to keep the full menu shape visible. */
+static void unavailable_item(int8_t dir)
+{
+	ARG_UNUSED(dir);
+	LOG_INF("item: permanently unavailable on this hardware");
+}
+
 static const menu_item_t radio_items[] = {
 	{ "Squelch",   squelch_cycle,   s_squelch_val_buf },
 	{ "Volume",    stub_item,       "7 %"             },
@@ -139,8 +300,22 @@ static const menu_item_t radio_items[] = {
 };
 
 static const menu_item_t display_items[] = {
-	{ "Brightness",     stub_item, "100%" },
-	{ "Screen timeout", stub_item, "30s"  },
+	{ "Brightness",          brightness_cycle,          s_brightness_val_buf     },
+	{ "Screen dim timeout",  screen_dim_timeout_cycle,  s_screen_timeout_val_buf },
+	{ "Backlight off-level", backlight_off_level_cycle, s_backlight_off_val_buf  },
+	{ "Screen invert",       screen_invert_set,         s_invert_val_buf         },
+	{ "Visual volume",       visual_volume_toggle,      s_visual_volume_val_buf  },
+	{ "Battery unit",        battery_unit_toggle,       s_battery_unit_val_buf   },
+	{ "All LEDs enabled",    leds_enabled_set,          s_leds_enabled_val_buf   },
+	{ "Auto Night",          unavailable_item,          "N/A"                    },
+	{ "Contact order",       unavailable_item,          "N/A"                    },
+	{ "Split contact",       unavailable_item,          "N/A"                    },
+	{ "Time in header",      unavailable_item,          "N/A"                    },
+	{ "Extended infos",      unavailable_item,          "N/A"                    },
+	{ "Timezone",            unavailable_item,          "N/A"                    },
+	{ "UTC/Local time",      unavailable_item,          "N/A"                    },
+	{ "Show distance",       unavailable_item,          "N/A"                    },
+	{ "DMR last talker",     unavailable_item,          "N/A"                    },
 };
 
 static lv_obj_t *create_settings(lv_obj_t *parent)
@@ -159,12 +334,7 @@ typedef struct {
 	void      (*handle_action)(lv_obj_t *screen, ui_action_t action);
 } frame_ops_t;
 
-/*
- * OK opens Settings; Up/Down keys and the encoder both step the RX
- * frequency (FM VFO has no lv_group members, so the shared keypad indev's
- * PREV/NEXT delivery here is a harmless no-op regardless of what's focused
- * elsewhere).
- */
+/** OK opens Settings; Up/Down and the encoder both step the RX frequency. */
 static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
@@ -220,6 +390,7 @@ static lv_group_t *s_input_group;
 static lv_indev_t *s_keypad_indev;
 static bool         s_indev_group_attached;
 
+/** Attaches the shared input group to the keypad indev only while Settings or the quick-menu is on top. */
 static void update_indev_group_attachment(void)
 {
 	bool need_group = (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS) ||
@@ -250,11 +421,7 @@ void ui_post_action(ui_action_t action)
 	(void)k_msgq_put(&ui_events, &action, K_NO_WAIT);
 }
 
-/*
- * Depth 1, overwrite-latest: the volume pot reports a continuous position,
- * not a discrete event — only the most recent value before the next
- * ui_tick() matters.
- */
+/* Depth-1, overwrite-latest: the pot reports a continuous position, so only the latest value before ui_tick() matters. */
 K_MSGQ_DEFINE(ui_vol_events, sizeof(uint16_t), 1, 1);
 
 /* vol_axis_ch's out-min/out-max mirror in-min/in-max exactly (board DTS). */
@@ -265,6 +432,7 @@ K_MSGQ_DEFINE(ui_vol_events, sizeof(uint16_t), 1, 1);
 /* ~7% of the calibrated span per VOL_UP/VOL_DN key press. */
 #define VOLUME_STEP_RAW (VOL_AXIS_SPAN * 7 / 100)
 
+/** Clamps and overwrite-latest posts a raw volume-pot reading for ui_tick() to apply. */
 void ui_post_volume_abs(uint16_t raw)
 {
 	if (raw > VOL_AXIS_MAX) {
@@ -278,6 +446,34 @@ void ui_post_volume_abs(uint16_t raw)
 
 /* ---------- 200 ms update timer ----------------------------------------- */
 
+/* Reuses this 200ms poll instead of a separate k_timer: it already runs on
+ * the LVGL thread regardless of frame, avoiding new cross-thread sync. */
+static int64_t s_last_activity_ms;
+static bool    s_backlight_dimmed;
+
+/** Applies either the dimmed off-level or full brightness to the backlight PWM. */
+static void backlight_apply_dim(bool dim)
+{
+	uint8_t pct = dim ? s_backlight_off_pct : s_brightness_pct;
+	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
+	int rc = display_set_brightness(disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)pct * 255, 100));
+
+	if (rc < 0) {
+		LOG_WRN("display_set_brightness(%u%%) failed: %d", pct, rc);
+	}
+	s_backlight_dimmed = dim;
+}
+
+/** Resets the idle timer and undims the backlight if it was dimmed. */
+static void ui_note_activity(void)
+{
+	s_last_activity_ms = k_uptime_get();
+	if (s_backlight_dimmed) {
+		backlight_apply_dim(false);
+	}
+}
+
+/** 200 ms tick: refreshes the status bar and active frame, and applies the screen-dim timeout. */
 static void update_timer_cb(lv_timer_t *t)
 {
 	ARG_UNUSED(t);
@@ -289,17 +485,18 @@ static void update_timer_cb(lv_timer_t *t)
 			frame_ops[id].update(s_frame_obj[id]);
 		}
 	}
+
+	if (s_screen_timeout_s > 0 && !s_backlight_dimmed &&
+	    (k_uptime_get() - s_last_activity_ms) >= (int64_t)s_screen_timeout_s * 1000) {
+		backlight_apply_dim(true);
+	}
 }
 
 /* ---------- Action dispatch --------------------------------------------- */
 
 static uint16_t s_volume_raw = (VOL_AXIS_MIN + VOL_AXIS_MAX) / 2; /* runtime volume state */
 
-/*
- * Hardware volume has no taper correction -- the pot's own taper is what
- * gives volume control its natural feel. Just linearly rescale the native
- * raw reading down to the 0-100 percent the driver's API expects.
- */
+/** Rescales the pot's raw ADC reading linearly to 0-100% for the driver's volume API. */
 static void radio_set_volume_pct(uint16_t raw)
 {
 	uint8_t pct = (uint8_t)DIV_ROUND_CLOSEST((uint32_t)(raw - VOL_AXIS_MIN) * 100,
@@ -313,24 +510,14 @@ static void radio_set_volume_pct(uint16_t raw)
 	}
 }
 
-/*
- * Reverse-mapping taper LUTs — 11-point piecewise-linear lookups (fraction
- * of the pot's native raw span, at checkpoints 0/10,...,10/10 ->
- * perceptually-linear display %). Which one applies is chosen at compile
- * time by the AT1846S node's volume-taper DT property (see
- * auctus,at1846s.yaml).
- */
+/* 11-point piecewise-linear reverse-mapping LUTs (raw-span fraction -> display %);
+ * selected at compile time by the AT1846S node's volume-taper DT property. */
 static const uint8_t taper_lut_linear[11] = {
 	0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
 };
 
-/*
- * Standard "A" (audio/log) taper: industry convention is roughly 10-15% of
- * full output at 50% rotation (this board measured ~14% on-hardware),
- * modeled as two linear segments meeting at that point rather than a
- * smooth analytic curve — matching how these pots are actually
- * manufactured (two overlapping resistive tracks).
- */
+/* Standard "A" (audio/log) taper, ~14% output at 50% rotation on this board;
+ * modeled as two linear segments rather than a smooth curve. */
 static const uint8_t taper_lut_audio_a[11] = {
 	0, 42, 55, 60, 66, 72, 77, 83, 89, 94, 100,
 };
@@ -341,21 +528,15 @@ static const uint8_t *const s_volume_taper_lut = taper_lut_audio_a;
 static const uint8_t *const s_volume_taper_lut = taper_lut_linear;
 #endif
 
+/** Maps a raw pot reading to a display percent via the selected taper LUT, interpolating between checkpoints. */
 static uint8_t volume_display_pct(uint16_t raw)
 {
 	if (raw >= VOL_AXIS_MAX) {
 		return s_volume_taper_lut[10];
 	}
 
-	/*
-	 * Scale the raw-minus-min offset by 10 *before* dividing by the span,
-	 * so the checkpoint index and the in-segment fraction both come out
-	 * of one exact calculation -- no need for the span to itself be a
-	 * multiple of 10 (it isn't: vol_axis_ch's calibrated span is 1936
-	 * counts). DIV_ROUND_CLOSEST below then rounds the final interpolated
-	 * value instead of the truncating '/' that used to bias every step
-	 * down by up to just under 1 point.
-	 */
+	/* Scale by 10 before dividing by span so index and in-segment fraction
+	 * come from one calculation, without requiring span to be a multiple of 10. */
 	uint32_t pos10 = (uint32_t)(raw - VOL_AXIS_MIN) * 10;
 	uint32_t idx = pos10 / VOL_AXIS_SPAN;
 	uint32_t rem = pos10 % VOL_AXIS_SPAN;
@@ -365,6 +546,7 @@ static uint8_t volume_display_pct(uint16_t raw)
 	return (uint8_t)(lo + DIV_ROUND_CLOSEST((hi - lo) * rem, VOL_AXIS_SPAN));
 }
 
+/** Sets hardware volume from a raw pot reading and shows the volume overlay. */
 static void apply_volume(uint16_t raw)
 {
 	s_volume_raw = raw;
@@ -372,12 +554,8 @@ static void apply_volume(uint16_t raw)
 	ui_overlay_volume_show(volume_display_pct(raw));
 }
 
-/*
- * Squelch/bandwidth echo state — the driver has no read-back for either, so
- * whatever the RADIO settings menu last set is the only source of truth.
- * 55 matches main.c's VHF_SQUELCH_TH boot default (not structurally linked;
- * acceptable until a real settings-persistence layer exists).
- */
+/* Squelch/bandwidth echo state -- the driver has no read-back, so the RADIO menu's
+ * last setting is the only source of truth. 55 matches main.c's boot default. */
 static uint8_t s_squelch_threshold = 55;
 static char    s_bw_str[8] = "25K";
 
@@ -402,17 +580,13 @@ void ui_set_bandwidth_str(const char *bw)
 	s_bw_str[sizeof(s_bw_str) - 1] = '\0';
 }
 
+/** Routes a drained ui_action_t to the overlay, active frame, or global handler. */
 static void dispatch_action(ui_action_t action)
 {
 	switch (action) {
 	case UI_ACTION_BACK:
-		/*
-		 * Priority: quick-menu overlay (no touchscreen to dismiss it
-		 * with) > a tabview's row level (ascend to the tab level
-		 * first, per-tabview two-level hierarchy) > leave the frame
-		 * entirely. Each check only fires if the thing above it
-		 * doesn't apply, so Back always does exactly one step.
-		 */
+		/* Priority: quick-menu overlay > tabview row level > leave the frame;
+		 * each check only fires if the one above it doesn't apply. */
 		if (overlay_quickmenu_is_active()) {
 			overlay_quickmenu_hide();
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS &&
@@ -474,6 +648,7 @@ static void dispatch_action(ui_action_t action)
 
 /* ---------- Public API -------------------------------------------------- */
 
+/** Builds the screen, status bar, overlays, and static frames; starts the update timer. */
 void ui_init(void)
 {
 	lv_obj_t *scr = lv_obj_create(NULL);
@@ -505,11 +680,7 @@ void ui_init(void)
 	lv_obj_set_style_pad_all(s_content, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(s_content, LV_SCROLLBAR_MODE_OFF);
 
-	/*
-	 * Shared input group — meshtastic-device-ui convention. Indevs start
-	 * unattached (group = NULL, LVGL's default); update_indev_group_
-	 * attachment() attaches/detaches them as frames/overlays change.
-	 */
+	/* Indevs start unattached; update_indev_group_attachment() attaches them as needed. */
 	s_input_group = lv_group_create();
 	lv_group_set_default(s_input_group);
 	s_keypad_indev = lvgl_input_get_indev(DEVICE_DT_GET(DT_NODELABEL(lvgl_keypad)));
@@ -527,19 +698,25 @@ void ui_init(void)
 	/* Start 200 ms update timer */
 	lv_timer_create(update_timer_cb, 200, NULL);
 
+	/* So the screen-dim timeout doesn't appear already-elapsed at boot. */
+	s_last_activity_ms = k_uptime_get();
+
 	/* Boot screen — one-shot transient; auto-advances to FM VFO after 2 s */
 	s_boot_obj = screen_boot_create(s_content);
 }
 
+/** Drains queued actions and the latest volume reading, then re-syncs input group attachment. */
 void ui_tick(void)
 {
 	ui_action_t action;
 	uint16_t vol_raw;
 
 	while (k_msgq_get(&ui_events, &action, K_NO_WAIT) == 0) {
+		ui_note_activity();
 		dispatch_action(action);
 	}
 	if (k_msgq_get(&ui_vol_events, &vol_raw, K_NO_WAIT) == 0) {
+		ui_note_activity();
 		apply_volume(vol_raw);
 	}
 	/* Cheap enough to recompute every tick — self-heals within one ~50 ms
@@ -547,6 +724,7 @@ void ui_tick(void)
 	update_indev_group_attachment();
 }
 
+/** Hides the current frame and shows id, pushing it onto the Back stack. */
 void ui_push_screen(screen_id_t id)
 {
 	if (id >= SCREEN_COUNT || frame_ops[id].create == NULL) {
@@ -569,6 +747,7 @@ void ui_push_screen(screen_id_t id)
 	LOG_DBG("push frame %d (depth %d)", id, s_frame_top + 1);
 }
 
+/** Pops the Back stack, hiding the current frame and revealing the previous one. */
 void ui_pop_screen(void)
 {
 	if (s_frame_top <= 0) {
@@ -582,6 +761,7 @@ void ui_pop_screen(void)
 	LOG_DBG("pop to frame %d (depth %d)", s_frame_stack[s_frame_top], s_frame_top + 1);
 }
 
+/** One-time boot transition: destroys the boot splash and shows id as the base frame. */
 void ui_switch_screen(screen_id_t id)
 {
 	if (s_boot_obj) {
@@ -601,7 +781,10 @@ void ui_switch_screen(screen_id_t id)
 	LOG_DBG("switch to frame %d", id);
 }
 
+/** Shows the volume overlay only if the Visual volume preference is on. */
 void ui_overlay_volume_show(uint8_t pct)
 {
-	overlay_volume_show(pct);
+	if (s_visual_volume_enabled) {
+		overlay_volume_show(pct);
+	}
 }

@@ -3,6 +3,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
@@ -16,6 +17,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define PMR446_SQUELCH_TH 55U  /* AT1846S 0x1B lo-byte noise threshold;
 				* opens when noise < 55, closes when > 58. */
 
+/** Bring up the AT1846S/HR-C6000 pair and tune to PMR446 channel 1 FM RX. */
 static int radio_tune_pmr446_ch1(void)
 {
 	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
@@ -82,21 +84,39 @@ static int radio_tune_pmr446_ch1(void)
 	return 0;
 }
 
+/** Configure led_green/led_red as outputs (see ui.c's "All LEDs" row). */
+static int leds_init(void)
+{
+	static const struct gpio_dt_spec led_green = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+	static const struct gpio_dt_spec led_red   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+	int ret;
+
+	if (!gpio_is_ready_dt(&led_green) || !gpio_is_ready_dt(&led_red)) {
+		LOG_ERR("LED GPIOs not ready");
+		return -ENODEV;
+	}
+	ret = gpio_pin_configure_dt(&led_green, GPIO_OUTPUT_INACTIVE);
+	if (ret < 0) {
+		return ret;
+	}
+	return gpio_pin_configure_dt(&led_red, GPIO_OUTPUT_INACTIVE);
+}
+
 int main(void)
 {
 	int ret;
 
 	LOG_INF("MAIN");
 
-	/*
-	 * Bring the radio up immediately. Other subsystems (USB CDC,
-	 * watchdog feed, future UI/input) run in their own threads and
-	 * are independent of main; if any of them stalls or panics the
-	 * radio stays receiving.
-	 */
+	/* Radio comes up first — other subsystems run in their own threads. */
 	ret = radio_tune_pmr446_ch1();
 	if (ret < 0) {
 		LOG_ERR("radio tune-in failed (%d)", ret);
+	}
+
+	ret = leds_init();
+	if (ret < 0) {
+		LOG_ERR("LED init failed (%d)", ret);
 	}
 
 	return 0;

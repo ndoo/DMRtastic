@@ -11,6 +11,7 @@
 #include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/display/panel.h>
 #include <zephyr/dt-bindings/lvgl/lvgl.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
 
 /* Not yet in this Zephyr version's input-event-codes.h; matches Linux's KEY_NUMERIC_STAR/POUND,
  * guarded in case a future update adds them. */
@@ -191,7 +192,9 @@
 			width    = <160>;
 			height   = <128>;
 			rotation = <90>;
-			backlight-gpios = <&gpioc 6 GPIO_ACTIVE_HIGH>;
+			/* PC6 backlight, reused as TIM3_CH1 PWM (AF2) instead of a plain GPIO so Brightness can dim it.
+			 * st,prescaler (see &timers3) must divide 72 MHz to 1 MHz first -- at full clock this period overflows TIM3's 16-bit ARR and silently crashes boot in hx8353e_init(). */
+			pwms = <&pwm3 1 PWM_USEC(10000) PWM_POLARITY_NORMAL>;
 		};
 	};
 
@@ -431,6 +434,19 @@ zephyr_udc0: &usbotg_fs {
 		reg = <0>;
 		spi-max-frequency = <4500000>;
 		spi-cpol;
+	};
+};
+
+/* hx8353e backlight PWM (Display settings' Brightness row); st,prescaler divides 72 MHz to 1 MHz (1 tick = 1 us) --
+ * see the pwms comment on hx8353e for why an undivided clock silently overflows TIM3's ARR and crashes boot. */
+&timers3 {
+	status = "okay";
+	st,prescaler = <71>;
+
+	pwm3: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim3_ch1_pc6>;
+		pinctrl-names = "default";
 	};
 };
 

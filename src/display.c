@@ -13,6 +13,7 @@
 
 LOG_MODULE_REGISTER(app_display, LOG_LEVEL_INF);
 
+/** LVGL thread entry: init the display/theme, then drive the UI tick loop. */
 static void lvgl_thread(void *a, void *b, void *c)
 {
 	const struct device *keypad = DEVICE_DT_GET(DT_NODELABEL(keypad));
@@ -20,6 +21,13 @@ static void lvgl_thread(void *a, void *b, void *c)
 	theme_init();
 
 	lv_display_t *disp = lv_display_get_default();
+
+	if (disp == NULL) {
+		/* Display device failed init; UI is lost, radio keeps running. */
+		LOG_ERR("no default LVGL display registered; UI thread exiting");
+		return;
+	}
+
 	lv_theme_t *th = lv_theme_default_init(disp,
 					       theme_colors()->accent_primary,
 					       theme_colors()->accent_secondary,
@@ -29,12 +37,7 @@ static void lvgl_thread(void *a, void *b, void *c)
 	ui_init();
 
 	while (1) {
-		/*
-		 * Scan the keypad matrix before touching the LCD: it borrows
-		 * the same 8 GPIOs as lcd_mipi_dbi's data bus and hands them
-		 * back before returning. Must stay on this thread — see
-		 * kbd_matrix_shared_bus.h.
-		 */
+		/* Shares GPIOs with the LCD bus — must stay on this thread. */
 		int krc = kbd_matrix_shared_bus_scan(keypad);
 		if (krc != 0) {
 			LOG_ERR("keypad scan failed: %d", krc);

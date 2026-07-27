@@ -16,6 +16,8 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 
+#include <drivers/display/hx8353e.h>
+
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(backlight_gpios)
 #include <zephyr/drivers/gpio.h>
 #endif
@@ -58,7 +60,6 @@ struct hx8353e_config {
 	uint16_t width;
 	uint16_t height;
 	uint16_t rotation;
-	bool bit_inversion;
 #if DT_ANY_INST_HAS_PROP_STATUS_OKAY(backlight_gpios)
 	struct gpio_dt_spec backlight_gpio;
 #endif
@@ -76,6 +77,7 @@ struct hx8353e_data {
 	uint16_t last_w;
 	uint16_t last_h;
 	uint8_t brightness;
+	bool inverted;
 };
 
 static int hx8353e_cmd(const struct device *dev, uint8_t cmd,
@@ -189,7 +191,7 @@ static int hx8353e_init_display(const struct device *dev)
 	}
 
 	ret = hx8353e_cmd(dev,
-			  cfg->bit_inversion ? HX8353E_INVON : HX8353E_INVOFF,
+			  data->inverted ? HX8353E_INVON : HX8353E_INVOFF,
 			  NULL, 0);
 	if (ret < 0) {
 		return ret;
@@ -296,6 +298,12 @@ static int hx8353e_blanking_off(const struct device *dev)
 		return ret;
 	}
 
+	/* Defensive: resend inversion, mirroring the brightness restore below. */
+	ret = hx8353e_cmd(dev, data->inverted ? HX8353E_INVON : HX8353E_INVOFF, NULL, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
 	ret = hx8353e_backlight_restore(dev);
 	if (ret < 0) {
 		return ret;
@@ -324,6 +332,19 @@ static int hx8353e_set_brightness(const struct device *dev, const uint8_t bright
 	ARG_UNUSED(brightness);
 	return -ENOTSUP;
 #endif
+}
+
+/* Driver-specific: Zephyr's display_driver_api has no inversion field. */
+int hx8353e_set_inverted(const struct device *dev, bool inverted)
+{
+	struct hx8353e_data *data = dev->data;
+	int ret = hx8353e_cmd(dev, inverted ? HX8353E_INVON : HX8353E_INVOFF, NULL, 0);
+
+	if (ret < 0) {
+		return ret;
+	}
+	data->inverted = inverted;
+	return 0;
 }
 
 static int hx8353e_write(const struct device *dev, const uint16_t x, const uint16_t y,
@@ -512,7 +533,6 @@ static int hx8353e_init(const struct device *dev)
 		.width         = DT_INST_PROP(n, width),			\
 		.height        = DT_INST_PROP(n, height),			\
 		.rotation      = DT_INST_PROP(n, rotation),			\
-		.bit_inversion = DT_INST_PROP(n, bit_inversion),		\
 		IF_ENABLED(DT_ANY_INST_HAS_PROP_STATUS_OKAY(backlight_gpios),	\
 			(.backlight_gpio =					\
 			 GPIO_DT_SPEC_INST_GET_OR(n, backlight_gpios, {0}),))	\
@@ -523,6 +543,7 @@ static int hx8353e_init(const struct device *dev)
 										\
 	static struct hx8353e_data hx8353e_data_##n = {				\
 		.brightness = 255,						\
+		.inverted   = DT_INST_PROP(n, bit_inversion),			\
 	};									\
 										\
 	DEVICE_DT_INST_DEFINE(n, hx8353e_init, NULL,				\

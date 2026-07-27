@@ -19,30 +19,16 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 #define APP_VERSION_STR "0.1.0-dev"
 
-#define ROW_H     16
+#define ROW_H     14 /* keypad/encoder nav only, no touch targets to preserve */
 #define ROW_PAD_X  4
 #define TAB_BAR_H  18
 
-#define SETTINGS_TAB_MAX_ROWS 8
+#define SETTINGS_TAB_MAX_ROWS 20
 #define SETTINGS_TAB_RADIO    0
 #define SETTINGS_TAB_DISPLAY  1
 
-/*
- * Two-level hierarchy (OpenGD77 convention, applies to every tabview):
- * Up/Down cycle through tabs only until Green/Enter "descends" into the
- * active tab's row list -- only then do Up/Down cycle through rows, and
- * only Red/Back "ascends" back out to the tab level. The two levels never
- * share group membership: tab buttons are group members only at the tab
- * level, the active tab's rows only at the row level. s_in_rows_level
- * tracks which; enter_rows_level()/screen_settings_exit_rows_level() do the
- * actual group-membership swap.
- *
- * This replaces the earlier single flat group (tab buttons + active tab's
- * rows all navigable together) -- lv_tabview doesn't hide inactive tabs'
- * content (lv_tabview_set_active() only scrolls the tab container), so
- * without managing membership explicitly, Up/Down's PREV/NEXT traversal
- * would wander into off-screen rows from whichever tab isn't showing.
- */
+/* Two-level hierarchy: tab buttons and the active tab's rows never share group
+ * membership (s_in_rows_level tracks which); see enter_rows_level()/exit_rows_level(). */
 static lv_obj_t *s_tabview;
 static bool       s_in_rows_level;
 
@@ -60,17 +46,7 @@ static uint8_t    s_display_row_count;
 static lv_obj_t *s_info_uptime_label;
 static lv_obj_t *s_info_rssi_label;
 
-/*
- * Row children are always [0]=label, optionally [1]=value label (see
- * add_row()) -- flip both to the theme's background color on focus so
- * they read against the saturated focus-background below, and restore
- * their normal colors on defocus. LVGL's text_color is an inheritable
- * style property in principle, but inheritance resolves from the PARENT's
- * *own* computed value for that property, not its state, and a plain
- * container never has its own text_color -- so a child label doesn't pick
- * up the row's FOCUSED-state styling automatically; setting it directly on
- * focus/defocus is the reliable way to get inverted text.
- */
+/** Inverts row [0]=label/[1]=value text color on focus so it reads against the focus background. */
 static void set_row_text_focused(lv_obj_t *row, bool focused)
 {
 	uint32_t child_count = lv_obj_get_child_count(row);
@@ -85,20 +61,16 @@ static void set_row_text_focused(lv_obj_t *row, bool focused)
 	}
 }
 
-/* Event callback for row buttons. ENTER/click always advances (dir=+1),
- * matching the old cycle-on-click behavior; the encoder can go either way
- * (see screen_settings_handle_action()). LVGL's group focus doesn't
- * auto-scroll a newly-focused object into view (the old hand-rolled cursor
- * did this explicitly via lv_obj_scroll_to_view() on every Up/Down) -- catch
- * LV_EVENT_FOCUSED here to restore that when a row scrolls partly/fully off
- * the tab's viewport. */
+/** Row event callback: ENTER/click advances (dir=+1); FOCUSED scrolls the row into view and inverts its text. */
 static void row_cb(lv_event_t *e)
 {
 	lv_event_code_t code = lv_event_get_code(e);
 	lv_obj_t *row = lv_event_get_target(e);
 
 	if (code == LV_EVENT_FOCUSED) {
-		lv_obj_scroll_to_view(row, LV_ANIM_ON);
+		/* LV_ANIM_OFF: animated scroll dropped presses arriving
+		 * mid-animation once there were 16 rows to scroll through. */
+		lv_obj_scroll_to_view(row, LV_ANIM_OFF);
 		set_row_text_focused(row, true);
 		return;
 	}
@@ -114,6 +86,7 @@ static void row_cb(lv_event_t *e)
 	}
 }
 
+/** Builds one clickable settings row (label + optional value) under tab; not added to the group. */
 static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_val_label)
 {
 	lv_obj_t *row = lv_obj_create(tab);
@@ -125,45 +98,50 @@ static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_
 	lv_obj_set_style_pad_ver(row, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(row, LV_SCROLLBAR_MODE_OFF);
 	lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-	/* Explicit focus feedback -- the default theme's focus outline isn't
-	 * visible enough on this display's low contrast. accent_secondary is
-	 * the brighter/more saturated of the two accent colors (see
-	 * theme.c); text color inverts to the background color via
-	 * set_row_text_focused() so it stays legible against it. */
+	/* Label flex-grows into whatever the value label (content-sized)
+	 * doesn't need -- short values leave more room, per row. */
+	lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+	lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	/* Default theme's focus outline isn't visible enough here, so use an explicit
+	 * saturated background instead (text inverts via set_row_text_focused()). */
 	lv_obj_set_style_bg_color(row, theme_colors()->accent_secondary,
 				  LV_PART_MAIN | LV_STATE_FOCUSED);
 	/* Cast away const: user_data is read-only in the callback. */
 	lv_obj_add_event_cb(row, row_cb, LV_EVENT_CLICKED, (void *)item);
 	lv_obj_add_event_cb(row, row_cb, LV_EVENT_FOCUSED, (void *)item);
 	lv_obj_add_event_cb(row, row_cb, LV_EVENT_DEFOCUSED, (void *)item);
-	/* Lets screen_settings_handle_action() map the currently-focused
-	 * object (from lv_group_get_focused()) back to its menu_item_t when
-	 * the encoder turns. */
+	/* Lets screen_settings_handle_action() map the focused object back to its menu_item_t. */
 	lv_obj_set_user_data(row, (void *)item);
-	/* Deliberately NOT added to the group here -- see the comment above
-	 * s_radio_rows. Membership is managed by set_tab_rows_active(). */
+	/* Deliberately NOT added to the group here -- membership is managed by set_rows_in_group(). */
 
 	lv_obj_t *lbl = lv_label_create(row);
 	lv_label_set_text(lbl, item->label);
 	lv_obj_set_style_text_color(lbl, theme_colors()->text_primary, LV_PART_MAIN);
-	lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
+	/* LONG_DOT truncates with an ellipsis if flex-grow leaves too little
+	 * room; needs a fixed height too, or it wraps instead of truncating. */
+	lv_obj_set_flex_grow(lbl, 1);
+	lv_obj_set_height(lbl, ROW_H);
+	lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
 
 	*out_val_label = NULL;
 	if (item->value_str) {
 		lv_obj_t *val = lv_label_create(row);
 		lv_label_set_text(val, item->value_str);
 		lv_obj_set_style_text_color(val, theme_colors()->text_secondary, LV_PART_MAIN);
-		lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
 		*out_val_label = val;
 	}
 
 	return row;
 }
 
+/** Builds a tab's row list from items (truncated to SETTINGS_TAB_MAX_ROWS); returns the row count used. */
 static uint8_t build_rows_tab(lv_obj_t *tab, const menu_item_t *items, uint8_t count,
 			       lv_obj_t **out_rows, lv_obj_t **out_val_labels)
 {
 	lv_obj_set_style_pad_all(tab, 0, LV_PART_MAIN);
+	/* Zero the default flex gap -- wastes space with up to 16 rows. */
+	lv_obj_set_style_pad_row(tab, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_ACTIVE);
 	lv_obj_set_layout(tab, LV_LAYOUT_FLEX);
 	lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
@@ -181,9 +159,7 @@ static uint8_t build_rows_tab(lv_obj_t *tab, const menu_item_t *items, uint8_t c
 	return count;
 }
 
-/* Value strings (e.g. s_squelch_val_buf in ui.c) are mutated in place by
- * each row's on_select() -- refresh the on-screen labels from them here
- * rather than relying on a per-item change callback. */
+/** Re-reads each item's value_str buffer (mutated in place by on_select()) into its label. */
 static void refresh_val_labels(const menu_item_t *items, lv_obj_t **val_labels, uint8_t count)
 {
 	for (uint8_t i = 0; i < count; i++) {
@@ -193,6 +169,7 @@ static void refresh_val_labels(const menu_item_t *items, lv_obj_t **val_labels, 
 	}
 }
 
+/** Builds the Info tab's static version/kernel lines and the uptime/RSSI labels. */
 static void build_info_tab(lv_obj_t *tab)
 {
 	lv_obj_set_layout(tab, LV_LAYOUT_FLEX);
@@ -217,17 +194,8 @@ static void build_info_tab(lv_obj_t *tab)
 	lv_obj_set_style_text_color(s_info_rssi_label, theme_colors()->text_primary, LV_PART_MAIN);
 }
 
-/*
- * lv_group_remove_obj() detaches an object from the group's traversal list,
- * but doesn't reliably clear the FOCUSED/FOCUS_KEY state bits it leaves
- * carrying (state belongs to the object, not the group -- removal doesn't
- * imply "unfocus" the way moving focus to a different object does). Left
- * alone, a tab button removed from the group while it happened to still be
- * the last-focused one keeps rendering its focus-highlight style forever,
- * even after Green descends into a *different* tab's rows. Clear both bits
- * explicitly on every removal so switching levels never leaves a stale
- * highlight behind.
- */
+/** Adds/removes rows from the shared group; removal also clears FOCUSED/FOCUS_KEY state
+ * since lv_group_remove_obj() leaves it set, which would render a stale highlight. */
 static void set_rows_in_group(lv_obj_t **rows, uint8_t count, bool add)
 {
 	for (uint8_t i = 0; i < count; i++) {
@@ -240,6 +208,7 @@ static void set_rows_in_group(lv_obj_t **rows, uint8_t count, bool add)
 	}
 }
 
+/** Adds/removes all tab buttons from the shared group, clearing stale focus state like set_rows_in_group(). */
 static void set_tab_buttons_in_group(bool add)
 {
 	uint32_t tab_count = lv_tabview_get_tab_count(s_tabview);
@@ -256,12 +225,7 @@ static void set_tab_buttons_in_group(bool add)
 	}
 }
 
-/* Descends into idx's row list: swaps group membership from tab buttons to
- * that tab's rows and focuses the first one. Called directly from each tab
- * button's own LV_EVENT_CLICKED handler (not lv_tabview's VALUE_CHANGED
- * event) so it fires even when Green is pressed on the tab that's already
- * active -- lv_tabview only fires VALUE_CHANGED when the active tab index
- * actually changes. */
+/** Descends into idx's row list: swaps group membership from tab buttons to that tab's rows and focuses the first one. */
 static void enter_rows_level(uint32_t idx)
 {
 	set_tab_buttons_in_group(false);
@@ -290,6 +254,7 @@ bool screen_settings_in_rows_level(void)
 	return s_in_rows_level;
 }
 
+/** Ascends to the tab level: restores tab-button group membership and focus. No-op if already there. */
 void screen_settings_exit_rows_level(void)
 {
 	if (!s_in_rows_level) {
@@ -306,6 +271,7 @@ void screen_settings_exit_rows_level(void)
 	lv_group_focus_obj(lv_tabview_get_tab_button(s_tabview, (int32_t)active));
 }
 
+/** Builds the Radio/Display/Info tabview; starts at the tab level with tab buttons in the group. */
 lv_obj_t *screen_settings_create(lv_obj_t *parent,
 				  const menu_item_t *radio_items, uint8_t radio_count,
 				  const menu_item_t *display_items, uint8_t display_count)
@@ -331,12 +297,8 @@ lv_obj_t *screen_settings_create(lv_obj_t *parent,
 					      s_display_rows, s_display_val_labels);
 	build_info_tab(info_tab);
 
-	/* Tab level is the initial state: tab buttons join the group (rows
-	 * don't, until Green descends into one -- see enter_rows_level()).
-	 * Each button gets its own index-carrying click handler in addition
-	 * to lv_tabview's internal one (which only switches the visible
-	 * content) so descending works even when Green is pressed on the
-	 * tab that's already active. */
+	/* Tab level is the initial state: tab buttons join the group, rows don't (see enter_rows_level()).
+	 * Each button also gets a click handler so descending works even when Green hits the already-active tab. */
 	uint32_t tab_count = lv_tabview_get_tab_count(tv);
 
 	for (uint32_t i = 0; i < tab_count; i++) {
@@ -352,6 +314,7 @@ lv_obj_t *screen_settings_create(lv_obj_t *parent,
 	return tv;
 }
 
+/** Refreshes row value labels and the Info tab's uptime/RSSI text. */
 void screen_settings_update(lv_obj_t *screen)
 {
 	ARG_UNUSED(screen);
@@ -373,6 +336,7 @@ void screen_settings_update(lv_obj_t *screen)
 	lv_label_set_text(s_info_rssi_label, buf);
 }
 
+/** Handles ENCODER_CW/CCW by calling the focused row's on_select(±1); no-op at the tab level. */
 void screen_settings_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	ARG_UNUSED(screen);
