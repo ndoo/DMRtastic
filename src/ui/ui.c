@@ -25,6 +25,7 @@
  */
 
 #include "ui.h"
+#include "theme.h"
 #include "status_bar.h"
 #include "overlays/overlay_volume.h"
 #include "overlays/overlay_quickmenu.h"
@@ -359,7 +360,7 @@ static void dispatch_action(ui_action_t action)
 void ui_init(void)
 {
 	lv_obj_t *scr = lv_obj_create(NULL);
-	lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(scr, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 	lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
 	lv_screen_load(scr);
@@ -368,7 +369,7 @@ void ui_init(void)
 	s_status_bar_obj = lv_obj_create(scr);
 	lv_obj_set_size(s_status_bar_obj, lv_pct(100), UI_STATUS_BAR_HEIGHT);
 	lv_obj_set_pos(s_status_bar_obj, 0, 0);
-	lv_obj_set_style_bg_color(s_status_bar_obj, lv_color_hex(0x1A1A1A),
+	lv_obj_set_style_bg_color(s_status_bar_obj, theme_colors()->surface,
 				  LV_PART_MAIN);
 	lv_obj_set_style_border_width(s_status_bar_obj, 0, LV_PART_MAIN);
 	lv_obj_set_style_radius(s_status_bar_obj, 0, LV_PART_MAIN);
@@ -381,7 +382,7 @@ void ui_init(void)
 	s_content = lv_obj_create(scr);
 	lv_obj_set_size(s_content, lv_pct(100), scr_h - UI_STATUS_BAR_HEIGHT);
 	lv_obj_set_pos(s_content, 0, UI_STATUS_BAR_HEIGHT);
-	lv_obj_set_style_bg_color(s_content, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(s_content, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(s_content, 0, LV_PART_MAIN);
 	lv_obj_set_style_radius(s_content, 0, LV_PART_MAIN);
 	lv_obj_set_style_pad_all(s_content, 0, LV_PART_MAIN);

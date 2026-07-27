@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "overlay_quickmenu.h"
+#include "../theme.h"
 
 #include <lvgl.h>
 #include <zephyr/logging/log.h>
@@ -46,9 +47,9 @@ void overlay_quickmenu_create(void)
 	s_panel = lv_obj_create(layer);
 	lv_obj_set_size(s_panel, OVERLAY_W, OVERLAY_H);
 	lv_obj_align(s_panel, LV_ALIGN_CENTER, 0, 0);
-	lv_obj_set_style_bg_color(s_panel, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(s_panel, theme_colors()->surface, LV_PART_MAIN);
 	lv_obj_set_style_bg_opa(s_panel, LV_OPA_90, LV_PART_MAIN);
-	lv_obj_set_style_border_color(s_panel, lv_color_white(), LV_PART_MAIN);
+	lv_obj_set_style_border_color(s_panel, theme_colors()->border, LV_PART_MAIN);
 	lv_obj_set_style_border_width(s_panel, 1, LV_PART_MAIN);
 	lv_obj_set_style_pad_all(s_panel, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(s_panel, LV_SCROLLBAR_MODE_OFF);
@@ -57,7 +58,7 @@ void overlay_quickmenu_create(void)
 		lv_obj_t *row = lv_obj_create(s_panel);
 		lv_obj_set_size(row, lv_pct(100), ROW_H);
 		lv_obj_set_pos(row, 0, (int32_t)(i * ROW_H));
-		lv_obj_set_style_bg_color(row, lv_color_black(), LV_PART_MAIN);
+		lv_obj_set_style_bg_color(row, theme_colors()->surface, LV_PART_MAIN);
 		lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
 		lv_obj_set_style_pad_hor(row, 4, LV_PART_MAIN);
 		lv_obj_set_style_pad_ver(row, 0, LV_PART_MAIN);
@@ -68,7 +69,7 @@ void overlay_quickmenu_create(void)
 
 		lv_obj_t *lbl = lv_label_create(row);
 		lv_label_set_text(lbl, s_row_labels[i]);
-		lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+		lv_obj_set_style_text_color(lbl, theme_colors()->text_primary, LV_PART_MAIN);
 		lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 	}
 

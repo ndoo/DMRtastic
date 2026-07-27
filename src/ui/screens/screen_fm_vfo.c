@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "screen_fm_vfo.h"
+#include "../theme.h"
 #include "../ui.h"
 
 #include <zephyr/device.h>
@@ -15,19 +16,11 @@
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
-/*
- * How long to wait after the last Up/Down step before actually programming
- * the AT1846S. Up/Down updates the shown frequency instantly (no I2C on the
- * input path at all); this coalesces a burst of clicks into a single real
- * retune instead of one blocking I2C transaction per detent, so the UI never
- * stalls waiting on the radio.
- */
+/* Debounce before programming the AT1846S: coalesces a burst of Up/Down
+ * clicks into one retune instead of blocking I2C per detent. */
 #define VFO_RETUNE_DEBOUNCE_MS 100
 
-/*
- * Widget pointers stored in a struct parented to the screen object via
- * lv_obj_set_user_data so they're naturally scoped to screen lifetime.
- */
+/* Stored via lv_obj_set_user_data so widget pointers are scoped to screen lifetime. */
 typedef struct {
 	lv_obj_t *freq_label;
 	lv_obj_t *rssi_bar;
@@ -47,6 +40,7 @@ static void fmt_freq(char *buf, size_t len, uint32_t hz)
 	snprintf(buf, len, "%3" PRIu32 ".%05" PRIu32 " MHz", mhz, frac);
 }
 
+/** Updates both the shown frequency label and d->last_freq_hz. */
 static void refresh_freq_label(fm_vfo_data_t *d, uint32_t hz)
 {
 	char buf[24];
@@ -56,11 +50,12 @@ static void refresh_freq_label(fm_vfo_data_t *d, uint32_t hz)
 	lv_label_set_text(d->freq_label, buf);
 }
 
+/** Builds the FM VFO screen's widgets and populates the initial frequency from the driver. */
 lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 {
 	lv_obj_t *scr = lv_obj_create(parent);
 	lv_obj_set_size(scr, lv_pct(100), lv_pct(100));
-	lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(scr, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 
@@ -74,7 +69,7 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 
 	/* Frequency display — large, top-centre */
 	d->freq_label = lv_label_create(scr);
-	lv_obj_set_style_text_color(d->freq_label, lv_color_white(), LV_PART_MAIN);
+	lv_obj_set_style_text_color(d->freq_label, theme_colors()->text_primary, LV_PART_MAIN);
 	lv_obj_set_style_text_font(d->freq_label, &lv_font_montserrat_20, LV_PART_MAIN);
 	lv_label_set_text(d->freq_label, "----.----- MHz");
 	lv_obj_align(d->freq_label, LV_ALIGN_TOP_MID, 0, 10);
@@ -85,12 +80,12 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 	lv_obj_align(d->rssi_bar, LV_ALIGN_CENTER, 0, 10);
 	lv_bar_set_range(d->rssi_bar, 0, 255);
 	lv_bar_set_value(d->rssi_bar, 0, LV_ANIM_OFF);
-	lv_obj_set_style_bg_color(d->rssi_bar, lv_color_hex(0x333333), LV_PART_MAIN);
-	lv_obj_set_style_bg_color(d->rssi_bar, lv_color_white(), LV_PART_INDICATOR);
+	lv_obj_set_style_bg_color(d->rssi_bar, theme_colors()->surface_alt, LV_PART_MAIN);
+	lv_obj_set_style_bg_color(d->rssi_bar, theme_colors()->text_primary, LV_PART_INDICATOR);
 
 	/* Bandwidth label — bottom-left */
 	d->bw_label = lv_label_create(scr);
-	lv_obj_set_style_text_color(d->bw_label, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
+	lv_obj_set_style_text_color(d->bw_label, theme_colors()->text_secondary, LV_PART_MAIN);
 	lv_label_set_text(d->bw_label, "25K");
 	lv_obj_align(d->bw_label, LV_ALIGN_BOTTOM_LEFT, 6, -6);
 
@@ -98,7 +93,7 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 	d->sq_open_label = lv_label_create(scr);
 	lv_label_set_text(d->sq_open_label, "[ SQUELCH ]");
 	lv_obj_set_style_text_color(d->sq_open_label,
-				    lv_color_hex(0x505050), LV_PART_MAIN);
+				    theme_colors()->surface_alt, LV_PART_MAIN);
 	lv_obj_align(d->sq_open_label, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 
 	/* Populate frequency from driver */
@@ -114,6 +109,7 @@ void screen_fm_vfo_destroy(lv_obj_t *screen)
 	lv_obj_delete(screen);
 }
 
+/** Polls RSSI and drives the debounced retune state machine for a pending frequency change. */
 void screen_fm_vfo_update(lv_obj_t *screen)
 {
 	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
@@ -131,9 +127,7 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 	}
 
 	if (d->retune_pending) {
-		/* Still within the debounce window -- leave the optimistic
-		 * shadow value on screen and don't let a driver readback
-		 * (still the pre-retune frequency) clobber it. */
+		/* Within the debounce window -- keep the optimistic shadow value on screen. */
 		if (k_uptime_get() - d->last_step_uptime >= VFO_RETUNE_DEBOUNCE_MS) {
 			uint32_t target = d->last_freq_hz;
 			int rc = api->set_frequency(trx, target, false);
@@ -149,14 +143,10 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 				}
 				d->retune_pending = false;
 			} else if (d->last_freq_hz == target) {
-				/* Shadow hasn't moved since we captured target --
-				 * hardware and shadow now agree. */
+				/* Shadow hasn't moved since target was captured -- now in sync. */
 				d->retune_pending = false;
 			}
-			/* else: a new step landed the shadow on something else
-			 * while this write was in flight -- stay pending so the
-			 * next check retunes to the newer target instead of
-			 * declaring sync prematurely. */
+			/* else: shadow moved again mid-write -- stay pending for the newer target. */
 		}
 	} else if (api->get_frequency) {
 		/* Frequency label — update only on change */
@@ -173,11 +163,12 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 	lv_label_set_text(d->sq_open_label,
 			  sq_open ? "[ OPEN ]" : "[ SQUELCH ]");
 	lv_obj_set_style_text_color(d->sq_open_label,
-				    sq_open ? lv_color_hex(0x00CC00)
-					    : lv_color_hex(0x505050),
+				    sq_open ? theme_colors()->status_success
+					    : theme_colors()->surface_alt,
 				    LV_PART_MAIN);
 }
 
+/** Steps the shown frequency and arms the debounced retune; see screen_fm_vfo_update(). */
 void screen_fm_vfo_step(lv_obj_t *screen, bool up)
 {
 	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
@@ -186,11 +177,7 @@ void screen_fm_vfo_step(lv_obj_t *screen, bool up)
 			       : (d->last_freq_hz > step ? d->last_freq_hz - step
 							  : d->last_freq_hz);
 
-	/*
-	 * No I2C here -- just update the shown value and (re)arm the
-	 * debounced retune in screen_fm_vfo_update(). Keeps the UI thread
-	 * from ever blocking on the AT1846S while the knob is turning.
-	 */
+	/* No I2C here -- just update the shown value and arm the debounced retune. */
 	refresh_freq_label(d, new_freq);
 	d->retune_pending   = true;
 	d->last_step_uptime = k_uptime_get();

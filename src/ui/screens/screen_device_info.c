@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "screen_device_info.h"
+#include "../theme.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -26,7 +27,7 @@ lv_obj_t *screen_device_info_create(lv_obj_t *parent)
 {
 	lv_obj_t *scr = lv_obj_create(parent);
 	lv_obj_set_size(scr, lv_pct(100), lv_pct(100));
-	lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(scr, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 	lv_obj_set_layout(scr, LV_LAYOUT_FLEX);
@@ -45,15 +46,15 @@ lv_obj_t *screen_device_info_create(lv_obj_t *parent)
 	for (size_t i = 0; i < ARRAY_SIZE(static_lines); i++) {
 		lv_obj_t *l = lv_label_create(scr);
 		lv_label_set_text(l, static_lines[i]);
-		lv_obj_set_style_text_color(l, lv_color_white(), LV_PART_MAIN);
+		lv_obj_set_style_text_color(l, theme_colors()->text_primary, LV_PART_MAIN);
 	}
 
 	d->uptime_label = lv_label_create(scr);
-	lv_obj_set_style_text_color(d->uptime_label, lv_color_white(),
+	lv_obj_set_style_text_color(d->uptime_label, theme_colors()->text_primary,
 				    LV_PART_MAIN);
 
 	d->rssi_label = lv_label_create(scr);
-	lv_obj_set_style_text_color(d->rssi_label, lv_color_white(),
+	lv_obj_set_style_text_color(d->rssi_label, theme_colors()->text_primary,
 				    LV_PART_MAIN);
 
 	screen_device_info_update(scr);

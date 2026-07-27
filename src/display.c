@@ -7,6 +7,7 @@
 #include <zephyr/devicetree.h>
 #include <lvgl.h>
 
+#include "ui/theme.h"
 #include "ui/ui.h"
 #include <drivers/input/kbd_matrix_shared_bus.h>
 
@@ -16,10 +17,12 @@ static void lvgl_thread(void *a, void *b, void *c)
 {
 	const struct device *keypad = DEVICE_DT_GET(DT_NODELABEL(keypad));
 
+	theme_init();
+
 	lv_display_t *disp = lv_display_get_default();
 	lv_theme_t *th = lv_theme_default_init(disp,
-					       lv_color_white(),
-					       lv_color_black(),
+					       theme_colors()->accent_primary,
+					       theme_colors()->accent_secondary,
 					       true, LV_FONT_DEFAULT);
 	lv_display_set_theme(disp, th);
 

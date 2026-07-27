@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "screen_menu.h"
+#include "../theme.h"
 #include "../ui.h"
 
 #include <lvgl.h>
@@ -15,8 +16,8 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 #define SCREEN_MENU_MAX_ROWS 8
 
-#define ROW_COLOR_NORMAL    lv_color_black()
-#define ROW_COLOR_SELECTED  lv_color_hex(0x2A2A6A)
+#define ROW_COLOR_NORMAL    (theme_colors()->bg)
+#define ROW_COLOR_SELECTED  (theme_colors()->selection_bg)
 
 /* Module-level state set by screen_menu_prepare() before create(). */
 static const char       *s_title;
@@ -60,20 +61,20 @@ lv_obj_t *screen_menu_create(lv_obj_t *parent)
 {
 	lv_obj_t *scr = lv_obj_create(parent);
 	lv_obj_set_size(scr, lv_pct(100), lv_pct(100));
-	lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(scr, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 
 	/* Title bar */
 	lv_obj_t *title_label = lv_label_create(scr);
 	lv_label_set_text(title_label, s_title ? s_title : "MENU");
-	lv_obj_set_style_text_color(title_label, lv_color_white(), LV_PART_MAIN);
+	lv_obj_set_style_text_color(title_label, theme_colors()->text_primary, LV_PART_MAIN);
 	lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 2);
 
 	/* Divider line under title */
 	lv_obj_t *div = lv_obj_create(scr);
 	lv_obj_set_size(div, lv_pct(100), 1);
-	lv_obj_set_style_bg_color(div, lv_color_hex(0x444444), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(div, theme_colors()->border, LV_PART_MAIN);
 	lv_obj_set_style_border_width(div, 0, LV_PART_MAIN);
 	lv_obj_align(div, LV_ALIGN_TOP_MID, 0, ROW_H + 2);
 
@@ -82,7 +83,7 @@ lv_obj_t *screen_menu_create(lv_obj_t *parent)
 	lv_obj_set_size(list, lv_pct(100),
 			lv_obj_get_height(parent) - ROW_H - 4);
 	lv_obj_align(list, LV_ALIGN_TOP_MID, 0, ROW_H + 4);
-	lv_obj_set_style_bg_color(list, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_color(list, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
 	lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
@@ -113,14 +114,14 @@ lv_obj_t *screen_menu_create(lv_obj_t *parent)
 
 		lv_obj_t *lbl = lv_label_create(row);
 		lv_label_set_text(lbl, item->label);
-		lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+		lv_obj_set_style_text_color(lbl, theme_colors()->text_primary, LV_PART_MAIN);
 		lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
 		if (item->value_str) {
 			lv_obj_t *val = lv_label_create(row);
 			lv_label_set_text(val, item->value_str);
 			lv_obj_set_style_text_color(val,
-						    lv_color_hex(0xAAAAAA),
+						    theme_colors()->text_secondary,
 						    LV_PART_MAIN);
 			lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
 		}
