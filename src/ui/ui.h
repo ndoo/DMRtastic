@@ -113,6 +113,12 @@ void        ui_set_squelch_threshold(uint8_t level);
 const char *ui_get_bandwidth_str(void);
 void        ui_set_bandwidth_str(const char *bw);
 
+/*
+ * Current VFO step size in Hz, set via the RADIO settings menu's Step row.
+ * Read by screen_fm_vfo_step() to compute the Up/Down frequency increment.
+ */
+uint32_t    ui_get_step_hz(void);
+
 /* ---------- Input bridge ------------------------------------------------ */
 
 /* Safe to call from any thread context; never from hard-ISR. */

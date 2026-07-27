@@ -6,6 +6,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <lvgl.h>
 #include <stdio.h>
@@ -13,6 +14,15 @@
 #include <drivers/radio/radio_transceiver.h>
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
+
+/*
+ * How long to wait after the last Up/Down step before actually programming
+ * the AT1846S. Up/Down updates the shown frequency instantly (no I2C on the
+ * input path at all); this coalesces a burst of clicks into a single real
+ * retune instead of one blocking I2C transaction per detent, so the UI never
+ * stalls waiting on the radio.
+ */
+#define VFO_RETUNE_DEBOUNCE_MS 100
 
 /*
  * Widget pointers stored in a struct parented to the screen object via
@@ -23,18 +33,27 @@ typedef struct {
 	lv_obj_t *rssi_bar;
 	lv_obj_t *bw_label;
 	lv_obj_t *sq_open_label;
-	uint32_t  last_freq_hz;
+	uint32_t  last_freq_hz;     /* value currently shown (== intended retune target) */
 	uint8_t   last_rssi;
+	bool      retune_pending;   /* last_freq_hz not yet programmed into hardware */
+	int64_t   last_step_uptime; /* k_uptime_get() at the most recent Up/Down step */
 } fm_vfo_data_t;
 
 static void fmt_freq(char *buf, size_t len, uint32_t hz)
 {
-	uint32_t mhz     = hz / 1000000U;
-	uint32_t khz     = (hz % 1000000U) / 1000U;
-	uint32_t sub_khz = (hz % 1000U) / 100U;
+	uint32_t mhz  = hz / 1000000U;
+	uint32_t frac = (hz % 1000000U) / 10U; /* 5 digits: 100 kHz down to 10 Hz */
 
-	snprintf(buf, len, "%3" PRIu32 ".%03" PRIu32 " %1" PRIu32 "  MHz",
-		 mhz, khz, sub_khz);
+	snprintf(buf, len, "%3" PRIu32 ".%05" PRIu32 " MHz", mhz, frac);
+}
+
+static void refresh_freq_label(fm_vfo_data_t *d, uint32_t hz)
+{
+	char buf[24];
+
+	d->last_freq_hz = hz;
+	fmt_freq(buf, sizeof(buf), hz);
+	lv_label_set_text(d->freq_label, buf);
 }
 
 lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
@@ -47,15 +66,17 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 
 	fm_vfo_data_t *d = lv_malloc(sizeof(*d));
 	__ASSERT_NO_MSG(d != NULL);
-	d->last_freq_hz = 0;
-	d->last_rssi    = 0xFF;
+	d->last_freq_hz     = 0;
+	d->last_rssi        = 0xFF;
+	d->retune_pending   = false;
+	d->last_step_uptime = 0;
 	lv_obj_set_user_data(scr, d);
 
 	/* Frequency display — large, top-centre */
 	d->freq_label = lv_label_create(scr);
 	lv_obj_set_style_text_color(d->freq_label, lv_color_white(), LV_PART_MAIN);
 	lv_obj_set_style_text_font(d->freq_label, &lv_font_montserrat_20, LV_PART_MAIN);
-	lv_label_set_text(d->freq_label, "--- --- ---  MHz");
+	lv_label_set_text(d->freq_label, "----.----- MHz");
 	lv_obj_align(d->freq_label, LV_ALIGN_TOP_MID, 0, 10);
 
 	/* RSSI bar — middle */
@@ -109,16 +130,41 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 		lv_bar_set_value(d->rssi_bar, signal, LV_ANIM_OFF);
 	}
 
-	/* Frequency label — update only on change */
-	uint32_t freq_hz = 0;
+	if (d->retune_pending) {
+		/* Still within the debounce window -- leave the optimistic
+		 * shadow value on screen and don't let a driver readback
+		 * (still the pre-retune frequency) clobber it. */
+		if (k_uptime_get() - d->last_step_uptime >= VFO_RETUNE_DEBOUNCE_MS) {
+			uint32_t target = d->last_freq_hz;
+			int rc = api->set_frequency(trx, target, false);
 
-	if (api->get_frequency && api->get_frequency(trx, &freq_hz) == 0 &&
-	    freq_hz != d->last_freq_hz) {
-		d->last_freq_hz = freq_hz;
-		char buf[24];
+			if (rc < 0) {
+				uint32_t hw_freq_hz;
 
-		fmt_freq(buf, sizeof(buf), freq_hz);
-		lv_label_set_text(d->freq_label, buf);
+				LOG_WRN("set_frequency(%u) failed: %d", target, rc);
+				/* Roll the display back to whatever's actually tuned. */
+				if (api->get_frequency &&
+				    api->get_frequency(trx, &hw_freq_hz) == 0) {
+					refresh_freq_label(d, hw_freq_hz);
+				}
+				d->retune_pending = false;
+			} else if (d->last_freq_hz == target) {
+				/* Shadow hasn't moved since we captured target --
+				 * hardware and shadow now agree. */
+				d->retune_pending = false;
+			}
+			/* else: a new step landed the shadow on something else
+			 * while this write was in flight -- stay pending so the
+			 * next check retunes to the newer target instead of
+			 * declaring sync prematurely. */
+		}
+	} else if (api->get_frequency) {
+		/* Frequency label — update only on change */
+		uint32_t freq_hz = 0;
+
+		if (api->get_frequency(trx, &freq_hz) == 0 && freq_hz != d->last_freq_hz) {
+			refresh_freq_label(d, freq_hz);
+		}
 	}
 
 	/* Squelch state derived from noise byte, against whatever the menu set */
@@ -130,4 +176,22 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 				    sq_open ? lv_color_hex(0x00CC00)
 					    : lv_color_hex(0x505050),
 				    LV_PART_MAIN);
+}
+
+void screen_fm_vfo_step(lv_obj_t *screen, bool up)
+{
+	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
+	uint32_t step = ui_get_step_hz();
+	uint32_t new_freq = up ? d->last_freq_hz + step
+			       : (d->last_freq_hz > step ? d->last_freq_hz - step
+							  : d->last_freq_hz);
+
+	/*
+	 * No I2C here -- just update the shown value and (re)arm the
+	 * debounced retune in screen_fm_vfo_update(). Keeps the UI thread
+	 * from ever blocking on the AT1846S while the knob is turning.
+	 */
+	refresh_freq_label(d, new_freq);
+	d->retune_pending   = true;
+	d->last_step_uptime = k_uptime_get();
 }

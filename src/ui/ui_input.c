@@ -163,7 +163,20 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 		break;
 	case INPUT_EV_REL:
 		if (evt->code == INPUT_REL_Y) {
-			ui_post_action(evt->value > 0 ? UI_ACTION_DOWN : UI_ACTION_UP);
+			/*
+			 * evt->value is the net quadrature count since the
+			 * last report (gpio_qdec's steps-per-period divides
+			 * this down to whole detents) -- usually +-1, but a
+			 * fast spin can coalesce more than one detent into a
+			 * single event, so post one action per detent rather
+			 * than dropping the extra distance.
+			 */
+			ui_action_t action = evt->value > 0 ? UI_ACTION_DOWN : UI_ACTION_UP;
+			int32_t count = evt->value < 0 ? -evt->value : evt->value;
+
+			for (int32_t i = 0; i < count; i++) {
+				ui_post_action(action);
+			}
 		}
 		break;
 	case INPUT_EV_ABS:

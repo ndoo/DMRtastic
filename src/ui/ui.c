@@ -82,10 +82,18 @@ static lv_obj_t *create_menu_display(lv_obj_t *p)
  */
 static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 {
-	ARG_UNUSED(screen);
-
-	if (action == UI_ACTION_OK) {
+	switch (action) {
+	case UI_ACTION_OK:
 		ui_push_screen(SCREEN_MENU_MAIN);
+		break;
+	case UI_ACTION_UP:
+		screen_fm_vfo_step(screen, true);
+		break;
+	case UI_ACTION_DOWN:
+		screen_fm_vfo_step(screen, false);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -277,6 +285,17 @@ void ui_set_bandwidth_str(const char *bw)
 {
 	strncpy(s_bw_str, bw, sizeof(s_bw_str) - 1);
 	s_bw_str[sizeof(s_bw_str) - 1] = '\0';
+}
+
+/* VFO Up/Down step size, cycled from the RADIO settings menu. */
+static const uint32_t    step_presets_hz[]    = { 2500, 5000, 6250, 12500, 25000 };
+static const char *const step_preset_labels[] = { "2.5k", "5k", "6.25k", "12.5k", "25k" };
+static uint8_t            s_step_idx = 1; /* 5 kHz default */
+static char               s_step_val_buf[8] = "5k";
+
+uint32_t ui_get_step_hz(void)
+{
+	return step_presets_hz[s_step_idx];
 }
 
 static void dispatch_action(ui_action_t action)
@@ -513,10 +532,19 @@ static void bandwidth_cycle(void)
 	ui_set_bandwidth_str(s_bw_val_buf);
 }
 
+/* Cycles through the preset step-size table on each OK press. */
+static void step_cycle(void)
+{
+	s_step_idx = (uint8_t)((s_step_idx + 1) % ARRAY_SIZE(step_presets_hz));
+	snprintf(s_step_val_buf, sizeof(s_step_val_buf), "%s",
+		 step_preset_labels[s_step_idx]);
+}
+
 static const menu_item_t radio_items[] = {
 	{ "Squelch",   squelch_cycle,   s_squelch_val_buf },
 	{ "Volume",    stub_item,       "7 %"             },
 	{ "Bandwidth", bandwidth_cycle, s_bw_val_buf       },
+	{ "Step",      step_cycle,      s_step_val_buf     },
 	{ "CTCSS/DCS", stub_item,       "Off"              },
 };
 
