@@ -313,7 +313,7 @@ static void dispatch_action(ui_action_t action)
 		status_bar_set_tx(false);
 		break;
 	case UI_ACTION_SK1:
-		LOG_INF("SK1 long-press: quick menu not yet implemented");
+		overlay_quickmenu_show();
 		break;
 	case UI_ACTION_SK2:
 	case UI_ACTION_KEY_0:

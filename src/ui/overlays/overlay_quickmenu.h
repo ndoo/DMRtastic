@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: MIT
 
 /*
- * Quick menu overlay — context-sensitive shortcut list.
+ * Quick menu overlay — floating shortcut list.
  *
- * Triggered by SK1 long-press from the FM VFO screen.
- * Items vary by active screen (bandwidth toggle, squelch adjust, CTCSS scan).
+ * Triggered by SK1 long-press (see ui_input.c). Centered panel, parented to
+ * lv_layer_top() so it floats above whatever screen is active. Created once
+ * in ui_init() and kept hidden; never deleted while the firmware is running.
  *
- * STUB — not implemented yet. Waiting for gpio-keys DTS and keypad driver.
+ * Rows are placeholders (LOG_INF on tap) until the shortcuts they name
+ * (bandwidth toggle, squelch adjust, CTCSS scan) get a real quick-access
+ * path independent of the full RADIO settings menu. Auto-dismisses like
+ * overlay_volume; tapping a row also dismisses it immediately.
  *
  * Internal header — include only from src/ui/.
  */
