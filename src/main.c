@@ -10,6 +10,8 @@
 #include <drivers/radio/radio_baseband.h>
 #include <drivers/radio/radio_transceiver.h>
 
+#include "battery.h"
+
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 #define PMR446_CH1_HZ     446006250U  /* diagnostic channel */
@@ -117,6 +119,11 @@ int main(void)
 	ret = leds_init();
 	if (ret < 0) {
 		LOG_ERR("LED init failed (%d)", ret);
+	}
+
+	ret = battery_init();
+	if (ret < 0) {
+		LOG_ERR("battery init failed (%d)", ret);
 	}
 
 	return 0;

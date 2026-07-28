@@ -15,6 +15,8 @@
 #include "screens/screen_fm_vfo.h"
 #include "screens/screen_settings.h"
 
+#include "battery.h"
+
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/device.h>
@@ -477,6 +479,7 @@ static void ui_note_activity(void)
 static void update_timer_cb(lv_timer_t *t)
 {
 	ARG_UNUSED(t);
+	battery_poll();
 	status_bar_update();
 	if (s_frame_top >= 0) {
 		screen_id_t id = s_frame_stack[s_frame_top];

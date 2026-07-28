@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 /*
- * Persistent status bar: mode label, RSSI bars, GPS dot, battery label (latter two are placeholders).
+ * Persistent status bar: mode label, RSSI bars, GPS dot (placeholder), battery label.
  * Internal header — include only from src/ui/.
  */
 
@@ -17,7 +17,7 @@
 /** Builds the status bar widgets under parent; call once from ui_init(). */
 void status_bar_create(lv_obj_t *parent);
 
-/** Refreshes the RSSI bars from the AT1846S; call periodically. */
+/** Refreshes the RSSI bars and battery label; call periodically. */
 void status_bar_update(void);
 void status_bar_set_mode(const char *mode);
 

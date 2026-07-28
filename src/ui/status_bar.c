@@ -3,6 +3,8 @@
 
 #include "status_bar.h"
 #include "theme.h"
+#include "ui.h"
+#include "battery.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -96,7 +98,33 @@ void status_bar_create(lv_obj_t *parent)
 	status_bar_update();
 }
 
-/** Polls RSSI and redraws the bar row only if the bar count changed. */
+/** Formats s_bat_label from battery.c's getters and the %/V unit pref; redraws only on change. */
+static void status_bar_update_battery(void)
+{
+	static char buf[8];
+	static uint16_t s_last_mv = 0xFFFF; /* sentinel: force first draw */
+	static bool s_last_is_pct = true;
+	static bool s_first = true;
+
+	bool is_pct = ui_get_battery_unit_is_percent();
+	uint16_t mv = battery_get_millivolts();
+
+	if (!s_first && mv == s_last_mv && is_pct == s_last_is_pct) {
+		return;
+	}
+	s_first = false;
+	s_last_mv = mv;
+	s_last_is_pct = is_pct;
+
+	if (is_pct) {
+		snprintf(buf, sizeof(buf), "%u%%", battery_get_percent());
+	} else {
+		snprintf(buf, sizeof(buf), "%u.%01uV", mv / 1000U, (mv % 1000U) / 100U);
+	}
+	lv_label_set_text(s_bat_label, buf);
+}
+
+/** Polls RSSI and battery, redrawing each only if its rendered value changed. */
 void status_bar_update(void)
 {
 	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
@@ -107,16 +135,17 @@ void status_bar_update(void)
 
 	uint8_t bars = rssi_to_bars(signal);
 
-	if (bars == s_last_bars) {
-		return;
-	}
-	s_last_bars = bars;
+	if (bars != s_last_bars) {
+		s_last_bars = bars;
 
-	for (int i = 0; i < RSSI_BARS; i++) {
-		lv_color_t c = (i < bars) ? theme_colors()->text_primary
-					  : theme_colors()->surface_alt;
-		lv_obj_set_style_bg_color(s_rssi_bars[i], c, LV_PART_MAIN);
+		for (int i = 0; i < RSSI_BARS; i++) {
+			lv_color_t c = (i < bars) ? theme_colors()->text_primary
+						  : theme_colors()->surface_alt;
+			lv_obj_set_style_bg_color(s_rssi_bars[i], c, LV_PART_MAIN);
+		}
 	}
+
+	status_bar_update_battery();
 }
 
 void status_bar_set_mode(const char *mode)
