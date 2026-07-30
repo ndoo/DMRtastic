@@ -5,6 +5,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/rtc.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/reboot.h>
@@ -27,6 +28,8 @@ static const struct device *const trx =
 	DEVICE_DT_GET(DT_NODELABEL(at1846s));
 static const struct device *const bb =
 	DEVICE_DT_GET(DT_NODELABEL(hr_c6000));
+static const struct device *const rtc_dev =
+	DEVICE_DT_GET(DT_NODELABEL(rtc));
 
 /* ---- RX ring buffer -------------------------------------------------- */
 
@@ -116,6 +119,22 @@ static bool parse_hex32(const char *s, uint32_t *out)
 		return false;
 	}
 	*out = (uint32_t)v;
+	return true;
+}
+
+/** Parse a bare decimal int; false on malformed input. */
+static bool parse_dec(const char *s, int *out)
+{
+	if (!s || *s == '\0') {
+		return false;
+	}
+	char *end;
+	long v = strtol(s, &end, 10);
+
+	if (end == s || *end != '\0') {
+		return false;
+	}
+	*out = (int)v;
 	return true;
 }
 
@@ -509,6 +528,73 @@ static void cmd_cp(char *args)
 	}
 }
 
+/** Sakamoto's algorithm — day of week for a Gregorian date (0 = Sunday), matching struct rtc_time.
+ * The STM32 RTC driver rejects tm_wday == -1 (unlike the "unknown" allowance in the struct's own
+ * doc comment), so this can't be left unset on a "rtc w". */
+static int day_of_week(int year, int mon, int day)
+{
+	static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+
+	if (mon < 3) {
+		year -= 1;
+	}
+	return (year + year / 4 - year / 100 + year / 400 + t[mon - 1] + day) % 7;
+}
+
+/** "rtc r" / "rtc w <year> <mon> <day> <hour> <min> <sec>" — read/set the hardware RTC. */
+static void cmd_rtc(char *args)
+{
+	char *sub = strtok(args, " \t");
+
+	if (!sub) {
+		shell_puts("ERR: rtc r|w ...\r\n");
+		return;
+	}
+
+	if (strcmp(sub, "r") == 0) {
+		struct rtc_time tm;
+		int rc = rtc_get_time(rtc_dev, &tm);
+
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+		} else {
+			shell_printf("%04d-%02d-%02d %02d:%02d:%02d\r\n",
+				     tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+				     tm.tm_hour, tm.tm_min, tm.tm_sec);
+		}
+	} else if (strcmp(sub, "w") == 0) {
+		int year, mon, day, hour, min, sec;
+
+		if (!parse_dec(strtok(NULL, " \t"), &year) ||
+		    !parse_dec(strtok(NULL, " \t"), &mon)  ||
+		    !parse_dec(strtok(NULL, " \t"), &day)  ||
+		    !parse_dec(strtok(NULL, " \t"), &hour) ||
+		    !parse_dec(strtok(NULL, " \t"), &min)  ||
+		    !parse_dec(strtok(NULL, " \t"), &sec)) {
+			shell_puts("ERR: rtc w <year> <mon> <day> <hour> <min> <sec>\r\n");
+			return;
+		}
+
+		struct rtc_time tm = {
+			.tm_sec  = sec,
+			.tm_min  = min,
+			.tm_hour = hour,
+			.tm_mday = day,
+			.tm_mon  = mon - 1,
+			.tm_year = year - 1900,
+			.tm_wday = day_of_week(year, mon, day),
+			.tm_yday = -1,
+			.tm_isdst = -1,
+			.tm_nsec = 0,
+		};
+		int rc = rtc_set_time(rtc_dev, &tm);
+
+		shell_printf("%s\r\n", rc < 0 ? "ERR writing" : "OK");
+	} else {
+		shell_puts("ERR: rtc r|w ...\r\n");
+	}
+}
+
 static void cmd_reboot(void)
 {
 	shell_puts("rebooting...\r\n");
@@ -530,6 +616,8 @@ static void cmd_help(void)
 		"cp region <name> [idx]   decode a named codeplug region\r\n"
 		"cp settings              on-flash settings block + magic number\r\n"
 		"cp info                  JEDEC ID, device info, calibration check\r\n"
+		"rtc r                    read the hardware RTC date/time\r\n"
+		"rtc w <Y> <M> <D> <h> <m> <s>  set the hardware RTC date/time\r\n"
 		"reboot                   warm-reset the MCU\r\n"
 		"help                     this list\r\n"
 	);
@@ -553,6 +641,8 @@ static void dispatch(char *line)
 		cmd_rssi();
 	} else if (strcmp(cmd, "cp") == 0) {
 		cmd_cp(rest ? rest : "");
+	} else if (strcmp(cmd, "rtc") == 0) {
+		cmd_rtc(rest ? rest : "");
 	} else if (strcmp(cmd, "reboot") == 0) {
 		cmd_reboot();
 	} else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {

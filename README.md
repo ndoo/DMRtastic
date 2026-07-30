@@ -35,7 +35,7 @@ Early bring-up on real hardware.
 <tr><th colspan="6" align="left">System</th></tr>
 <tr><td>Watchdog</td><td>IWDG</td><td><code>st,stm32-watchdog</code></td><td>⭐</td><td>🟢</td><td>Feed loop, green-LED heartbeat</td></tr>
 <tr><td>Green / Red LEDs</td><td>GPIO</td><td><code>gpio-leds</code></td><td>⭐</td><td>🟢<br>🟡</td><td>Green: 1 Hz heartbeat<br>Red: available, no indicator assigned yet</td></tr>
-<tr><td>RTC</td><td>LSE 32.768 kHz</td><td><code>st,stm32-rtc</code></td><td>⭐</td><td>⚪</td><td></td></tr>
+<tr><td>RTC</td><td>LSE 32.768 kHz</td><td><code>st,stm32-rtc</code></td><td>⭐</td><td>🟡</td><td></td></tr>
 <tr><td>I2S3 audio</td><td>I2S3_ext for full-duplex RX</td><td><code>st,stm32-i2s</code></td><td>⭐</td><td>🔴</td><td>Streaming (mic capture, DMR TX/RX audio)</td></tr>
 <tr><td>Beeper</td><td>GPIO (PC8)</td><td><code>st,stm32-gpio</code></td><td>🟡[^3]</td><td>⚪</td><td>Tones</td></tr>
 <tr><td>Microphone</td><td>PA13 power enable</td><td><code>st,stm32-gpio</code></td><td>🟡[^4]</td><td>🔴</td><td>Capture (DMR TX audio input)</td></tr>
@@ -91,6 +91,7 @@ Interactive shell over USB CDC-ACM (`src/shell_radio.c`):
 | `cp region <name> [idx]` | Typed decode of one codeplug region |
 | `cp settings` | On-flash nv-settings block + magic number |
 | `cp info` | JEDEC ID, device info, calibration sanity check |
+| `rtc r/w` | Read/set the hardware RTC date-time |
 
 `tools/radio_diag.py` drives the `at`/`hc`/`rssi` commands from the host for automated register sweeps and gain/filter characterization.
 
