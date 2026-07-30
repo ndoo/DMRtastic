@@ -9,6 +9,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/util.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -17,6 +18,8 @@
 
 #include <drivers/radio/radio_baseband.h>
 #include <drivers/radio/radio_transceiver.h>
+
+#include "codeplug.h"
 
 static const struct device *const uart_dev =
 	DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
@@ -98,6 +101,60 @@ static bool parse_hex8(const char *s, uint8_t *out)
 	}
 	*out = (uint8_t)v;
 	return true;
+}
+
+/** Parse a bare hex value (no 0x prefix, up to 32 bits); false on malformed input. */
+static bool parse_hex32(const char *s, uint32_t *out)
+{
+	if (!s || *s == '\0') {
+		return false;
+	}
+	char *end;
+	unsigned long v = strtoul(s, &end, 16);
+
+	if (end == s || *end != '\0') {
+		return false;
+	}
+	*out = (uint32_t)v;
+	return true;
+}
+
+/** Print len bytes starting at display address base_addr, 16 bytes/line. */
+static void shell_hexdump(uint32_t base_addr, const uint8_t *data, size_t len)
+{
+	for (size_t i = 0; i < len; i += 16) {
+		size_t n = MIN((size_t)16, len - i);
+
+		shell_printf("%06lX:", (unsigned long)(base_addr + i));
+		for (size_t j = 0; j < n; j++) {
+			shell_printf(" %02X", data[i + j]);
+		}
+		shell_puts("\r\n");
+	}
+}
+
+/** Format a decoded CSS value, e.g. "203.5Hz" / "D023N" / "D023I" / "off". */
+static const char *format_css(struct cp_css css, char *buf, size_t buflen)
+{
+	if (css.type == CP_CSS_CTCSS) {
+		snprintf(buf, buflen, "%u.%uHz", css.value / 10, css.value % 10);
+	} else if (css.type == CP_CSS_DCS) {
+		snprintf(buf, buflen, "D%03o%c", css.value, css.inverted ? 'I' : 'N');
+	} else {
+		snprintf(buf, buflen, "off");
+	}
+	return buf;
+}
+
+/** Format a signed x1e4-degree fixed-point value as e.g. "-123.4567", no floating point. */
+static const char *format_latlon(int32_t v, char *buf, size_t buflen)
+{
+	bool neg = v < 0;
+	int32_t abs_v = neg ? -v : v;
+
+	snprintf(buf, buflen, "%s%ld.%04ld", neg ? "-" : "",
+		 (long)(abs_v / 10000), (long)(abs_v % 10000));
+	return buf;
 }
 
 /** "at r <reg>" / "at w <reg> <hi> <lo>" — read/write an AT1846S register. */
@@ -204,6 +261,254 @@ static void cmd_rssi(void)
 	}
 }
 
+/** "cp list" — print every known codeplug region: name, offset, size. */
+static void cmd_cp_list(void)
+{
+	struct cp_region_info regions[20];
+	int n = codeplug_list_regions(regions, ARRAY_SIZE(regions));
+
+	for (int i = 0; i < n; i++) {
+		shell_printf("%-24s off=0x%06lX size=0x%04lX\r\n",
+			     regions[i].name, (unsigned long)regions[i].offset,
+			     (unsigned long)regions[i].size);
+	}
+}
+
+/** "cp dump <addr> <len>" — raw hexdump of an absolute chip address range. */
+static void cmd_cp_dump(char *args)
+{
+	char *arg1 = strtok(args, " \t");
+	char *arg2 = strtok(NULL, " \t");
+	uint32_t addr, len;
+	uint8_t buf[16];
+
+	if (!parse_hex32(arg1, &addr) || !parse_hex32(arg2, &len) || len == 0) {
+		shell_puts("ERR: cp dump <addr> <len>\r\n");
+		return;
+	}
+
+	while (len > 0) {
+		size_t n = MIN((uint32_t)sizeof(buf), len);
+		int rc = codeplug_raw_read(addr, buf, n);
+
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+			return;
+		}
+		shell_hexdump(addr, buf, n);
+		addr += n;
+		len -= n;
+	}
+}
+
+/** Raw hexdump of a named region looked up via codeplug_list_regions(). */
+static void cp_dump_named_region(const char *name)
+{
+	struct cp_region_info regions[20];
+	int n = codeplug_list_regions(regions, ARRAY_SIZE(regions));
+
+	for (int i = 0; i < n; i++) {
+		if (strcmp(regions[i].name, name) != 0) {
+			continue;
+		}
+
+		uint32_t off = regions[i].offset;
+		uint32_t remaining = regions[i].size;
+		uint8_t buf[16];
+
+		while (remaining > 0) {
+			size_t chunk = MIN((uint32_t)sizeof(buf), remaining);
+			int rc = codeplug_raw_read(off, buf, chunk);
+
+			if (rc < 0) {
+				shell_printf("ERR: %d\r\n", rc);
+				return;
+			}
+			shell_hexdump(off, buf, chunk);
+			off += chunk;
+			remaining -= chunk;
+		}
+		return;
+	}
+	shell_printf("ERR: unknown region '%s'\r\n", name);
+}
+
+/** "cp region <name> [idx]" — typed decode of one named region, or a raw dump. */
+static void cmd_cp_region(char *args)
+{
+	char *name = strtok(args, " \t");
+	char *idx_str = strtok(NULL, " \t");
+	int idx = idx_str ? (int)strtoul(idx_str, NULL, 10) : 0;
+	int rc;
+
+	if (!name) {
+		shell_puts("ERR: cp region <name> [idx]\r\n");
+		return;
+	}
+
+	if (strcmp(name, "general-settings") == 0) {
+		struct cp_general_settings s;
+
+		rc = codeplug_get_general_settings(&s);
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+			return;
+		}
+		shell_printf("radioName=%.8s radioId=%lu\r\n",
+			     s.radioName, (unsigned long)s.radioId);
+	} else if (strcmp(name, "device-info") == 0) {
+		struct cp_device_info d;
+
+		rc = codeplug_get_device_info(&d);
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+			return;
+		}
+		shell_printf("model=%.8s sn=%.16s hw=%.8s fw=%.8s\r\n",
+			     d.model, d.sn, d.hardwareVer, d.firmwareVer);
+		shell_printf("uhf=%u-%uMHz vhf=%u-%uMHz\r\n",
+			     d.minUHFFreq, d.maxUHFFreq, d.minVHFFreq, d.maxVHFFreq);
+	} else if (strcmp(name, "channel") == 0) {
+		struct cp_channel ch;
+
+		rc = codeplug_get_channel(idx, &ch);
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+			return;
+		}
+		if (!codeplug_channel_is_in_use(&ch)) {
+			shell_puts("slot unused\r\n");
+			return;
+		}
+
+		char rx_buf[12], tx_buf[12], lat_buf[16], lon_buf[16];
+		uint8_t lat_raw[3] = { ch.locationLat0, ch.locationLat1, ch.locationLat2 };
+		uint8_t lon_raw[3] = { ch.locationLon0, ch.locationLon1, ch.locationLon2 };
+
+		shell_printf("name=%.16s rx=%lu tx=%lu mode=%u pwr=%u\r\n",
+			     ch.name, (unsigned long)ch.rxFreq,
+			     (unsigned long)ch.txFreq, ch.chMode, ch.power);
+		shell_printf("rxTone=%s txTone=%s\r\n",
+			     format_css(codeplug_decode_css(ch.rxTone), rx_buf, sizeof(rx_buf)),
+			     format_css(codeplug_decode_css(ch.txTone), tx_buf, sizeof(tx_buf)));
+		shell_printf("lat=%s lon=%s\r\n",
+			     format_latlon(codeplug_decode_latlon(lat_raw), lat_buf, sizeof(lat_buf)),
+			     format_latlon(codeplug_decode_latlon(lon_raw), lon_buf, sizeof(lon_buf)));
+	} else if (strcmp(name, "contact") == 0) {
+		struct cp_contact c;
+
+		rc = codeplug_get_contact(idx, &c);
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+			return;
+		}
+		if (!codeplug_contact_is_in_use(&c)) {
+			shell_puts("slot unused\r\n");
+			return;
+		}
+		shell_printf("name=%.16s tg=%lu type=%u\r\n",
+			     c.name, (unsigned long)c.tgNumber, c.callType);
+	} else if (strcmp(name, "zone") == 0) {
+		struct cp_zone z;
+		int channels_per_zone;
+
+		rc = codeplug_get_zone(idx, &z, &channels_per_zone);
+		if (rc < 0) {
+			shell_printf("ERR: %d\r\n", rc);
+			return;
+		}
+		shell_printf("name=%.16s channels_per_zone=%d\r\n", z.name, channels_per_zone);
+	} else {
+		cp_dump_named_region(name);
+	}
+}
+
+/** "cp settings" — on-flash settings block: magic number, then best-effort decode or dump. */
+static void cmd_cp_settings(void)
+{
+	uint8_t buf[256];
+	uint32_t magic;
+	int rc = codeplug_get_nv_settings_raw(buf, sizeof(buf), &magic);
+
+	if (rc < 0) {
+		shell_printf("ERR: %d\r\n", rc);
+		return;
+	}
+	shell_printf("magic=0x%04lX (latest known=0x%04X)\r\n",
+		     (unsigned long)magic, CP_NV_SETTINGS_MAGIC_LATEST);
+
+	if (magic == CP_NV_SETTINGS_MAGIC_LATEST) {
+		struct cp_nv_settings *s = (struct cp_nv_settings *)buf;
+
+		shell_printf("backlightMode=%u backLightTimeout=%u txPowerLevel=%u\r\n",
+			     s->backlightMode, s->backLightTimeout, s->txPowerLevel);
+	} else {
+		shell_puts("magic mismatch -- raw dump:\r\n");
+		shell_hexdump(0, buf, MIN(sizeof(buf), (size_t)64));
+	}
+}
+
+/** "cp info" — JEDEC ID, device info, and a calibration-marker sanity check. */
+static void cmd_cp_info(void)
+{
+	uint8_t id[3];
+	int rc = codeplug_get_jedec_id(id);
+
+	if (rc < 0) {
+		shell_printf("jedec: ERR %d\r\n", rc);
+	} else {
+		shell_printf("jedec: %02X %02X %02X\r\n", id[0], id[1], id[2]);
+	}
+
+	struct cp_device_info info;
+
+	rc = codeplug_get_device_info(&info);
+	if (rc < 0) {
+		shell_printf("device-info: ERR %d\r\n", rc);
+	} else {
+		shell_printf("model=%.8s sn=%.16s fw=%.8s\r\n",
+			     info.model, info.sn, info.firmwareVer);
+	}
+
+	static const uint8_t cal_marker[8] = {0x00, 0x25, 0x00, 0x40, 0x00, 0x45, 0x01, 0x40};
+	struct cp_calibration cal;
+
+	rc = codeplug_get_calibration(&cal);
+	if (rc < 0) {
+		shell_printf("calibration marker: ERR %d\r\n", rc);
+	} else {
+		bool ok = memcmp(cal.uhfCalFreqs[0], cal_marker, sizeof(cal_marker)) == 0;
+
+		shell_printf("calibration marker: %s\r\n", ok ? "OK" : "MISMATCH");
+	}
+}
+
+/** "cp dump|list|region|settings|info ..." — codeplug flash inspection. */
+static void cmd_cp(char *args)
+{
+	char *sub = strtok(args, " \t");
+	char *rest = strtok(NULL, "");
+
+	if (!sub) {
+		shell_puts("ERR: cp dump|list|region|settings|info ...\r\n");
+		return;
+	}
+
+	if (strcmp(sub, "dump") == 0) {
+		cmd_cp_dump(rest ? rest : "");
+	} else if (strcmp(sub, "list") == 0) {
+		cmd_cp_list();
+	} else if (strcmp(sub, "region") == 0) {
+		cmd_cp_region(rest ? rest : "");
+	} else if (strcmp(sub, "settings") == 0) {
+		cmd_cp_settings();
+	} else if (strcmp(sub, "info") == 0) {
+		cmd_cp_info();
+	} else {
+		shell_puts("ERR: cp dump|list|region|settings|info ...\r\n");
+	}
+}
+
 static void cmd_reboot(void)
 {
 	shell_puts("rebooting...\r\n");
@@ -220,6 +525,11 @@ static void cmd_help(void)
 		"hc r <page> <reg>        read HR-C6000 reg\r\n"
 		"hc w <page> <reg> <val>  write HR-C6000 reg\r\n"
 		"rssi                     AT1846S 0x1B noise/signal\r\n"
+		"cp dump <addr> <len>     raw codeplug flash hexdump\r\n"
+		"cp list                  list known codeplug regions\r\n"
+		"cp region <name> [idx]   decode a named codeplug region\r\n"
+		"cp settings              on-flash settings block + magic number\r\n"
+		"cp info                  JEDEC ID, device info, calibration check\r\n"
 		"reboot                   warm-reset the MCU\r\n"
 		"help                     this list\r\n"
 	);
@@ -241,6 +551,8 @@ static void dispatch(char *line)
 		cmd_hc(rest ? rest : "");
 	} else if (strcmp(cmd, "rssi") == 0) {
 		cmd_rssi();
+	} else if (strcmp(cmd, "cp") == 0) {
+		cmd_cp(rest ? rest : "");
 	} else if (strcmp(cmd, "reboot") == 0) {
 		cmd_reboot();
 	} else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {

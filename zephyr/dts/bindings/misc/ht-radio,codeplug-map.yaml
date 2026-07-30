@@ -1,0 +1,102 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+description: |
+  Named region map for a radio's persistent-configuration flash chip
+  (channels, contacts, zones, settings, calibration, etc). Each property is
+  an <offset size> pair, byte offsets into the flash device referenced by
+  codeplug-flash. Properties are all optional: a board only declares the
+  regions its own flash layout actually has, so the same binding schema
+  covers radios with different flash sizes or region sets without any
+  schema change -- only the property values differ per board.
+
+compatible: "ht-radio,codeplug-map"
+
+properties:
+  codeplug-flash:
+    type: phandle
+    required: true
+    description: The flash device these region offsets are relative to.
+
+  device-info:
+    type: array
+    description: Model/serial/firmware-version block.
+
+  general-settings:
+    type: array
+    description: Radio name, radio ID, basic radio parameters.
+
+  signalling-dtmf:
+    type: array
+    description: DTMF signalling configuration.
+
+  signalling-dtmf-durations:
+    type: array
+    description: |
+      DTMF timing sub-block (first/other digit duration, rate, tail).
+      Independently addressed, not a slice of signalling-dtmf.
+
+  aprs-configs:
+    type: array
+    description: APRS configuration entries.
+
+  dtmf-contacts:
+    type: array
+    description: DTMF contact list.
+
+  channels-bank1:
+    type: array
+    description: First channel bank (in-use bitmask header + channel entries).
+
+  last-used-channel:
+    type: array
+    description: Last-used-channel-in-zone record.
+
+  nv-settings:
+    type: array
+    description: |
+      On-flash persistent settings block (backlight, timers, last-used
+      zone/channel, etc). Magic-numbered; field shape may vary by firmware
+      version -- see the reader implementation for handling.
+
+  boot-password:
+    type: array
+    description: Boot intro-screen flag, password-enable flag, and PIN.
+
+  quickkeys:
+    type: array
+    description: Quick-key function assignments.
+
+  boot-lines:
+    type: array
+    description: |
+      Two 16-byte boot-screen text lines. boot-password's intro-screen flag
+      selects between showing these or the radio's built-in boot picture.
+
+  vfo-channels:
+    type: array
+    description: VFO A/B channel data.
+
+  zones-ext:
+    type: array
+    description: Zone in-use bitmap and zone list.
+
+  calibration:
+    type: array
+    description: Local working copy of the radio's calibration table.
+
+  custom-data:
+    type: array
+    description: Optional custom-data chain (splash image, beep, theme, ...).
+
+  channels-ext:
+    type: array
+    description: Additional channel banks beyond channels-bank1.
+
+  contacts:
+    type: array
+    description: Contact list.
+
+  rx-group-lists:
+    type: array
+    description: RX group list in-use array and entries.

@@ -427,6 +427,23 @@ zephyr_udc0: &usbotg_fs {
 		compatible = "jedec,spi-nor";
 		reg = <0>;
 		spi-max-frequency = <4500000>; /* 72 MHz / 16 */
+
+		/* Erase/write-domain boundaries only -- per-region offsets live in the codeplug-map node below. */
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			codeplug_low: partition@0 {
+				reg = <0x00000000 0x00010200>;
+			};
+			codeplug_cal: partition@10000 {
+				reg = <0x00010000 0x00000200>;
+			};
+			codeplug_ext: partition@20000 {
+				reg = <0x00020000 0x00093e60>;
+			};
+		};
 	};
 };
 
@@ -442,6 +459,34 @@ zephyr_udc0: &usbotg_fs {
 		reg = <0>;
 		spi-max-frequency = <4500000>;
 		spi-cpol;
+	};
+};
+
+/ {
+	/* Named <offset size> region map; every property is optional so other boards can redeclare their own layout. */
+	codeplug_map: codeplug-map {
+		compatible = "ht-radio,codeplug-map";
+		codeplug-flash = <&w25q_codeplug>;
+
+		device-info        = <0x00000080 0x00000060>;
+		general-settings    = <0x000000e0 0x00000028>;
+		signalling-dtmf     = <0x00001400 0x00000078>;
+		signalling-dtmf-durations = <0x00001472 0x00000005>;
+		aprs-configs        = <0x00001588 0x00000200>;
+		dtmf-contacts       = <0x00002f88 0x000007e0>;
+		channels-bank1      = <0x00003780 0x00001c10>;
+		last-used-channel   = <0x00006000 0x0000004a>;
+		nv-settings         = <0x0000604b 0x00000100>;
+		boot-password       = <0x00007518 0x0000000c>;
+		quickkeys           = <0x00007524 0x00000014>;
+		boot-lines          = <0x00007540 0x00000020>;
+		vfo-channels        = <0x00007590 0x00000070>;
+		zones-ext           = <0x00008000 0x00002ef0>;
+		calibration         = <0x00010000 0x00000200>;
+		custom-data         = <0x00020000 0x00010000>;
+		channels-ext        = <0x0009b1b0 0x0000c470>;
+		contacts            = <0x000a7620 0x00006000>;
+		rx-group-lists      = <0x000ad620 0x00001840>;
 	};
 };
 
