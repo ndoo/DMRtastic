@@ -4,6 +4,7 @@
 #include "screen_fm_vfo.h"
 #include "../theme.h"
 #include "../ui.h"
+#include "../../radio_settings.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -158,7 +159,7 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 	}
 
 	/* Squelch state derived from noise byte, against whatever the menu set */
-	bool sq_open = (noise < ui_get_squelch_threshold());
+	bool sq_open = (noise < settings_get_squelch_level());
 
 	lv_label_set_text(d->sq_open_label,
 			  sq_open ? "[ OPEN ]" : "[ SQUELCH ]");
@@ -172,7 +173,7 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 void screen_fm_vfo_step(lv_obj_t *screen, bool up)
 {
 	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
-	uint32_t step = ui_get_step_hz();
+	uint32_t step = settings_get_vfo_step_hz();
 	uint32_t new_freq = up ? d->last_freq_hz + step
 			       : (d->last_freq_hz > step ? d->last_freq_hz - step
 							  : d->last_freq_hz);

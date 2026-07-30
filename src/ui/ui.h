@@ -84,18 +84,10 @@ void ui_switch_screen(screen_id_t id);
 /** Show the volume overlay set to pct (0-100). Auto-dismisses after 2 s. */
 void ui_overlay_volume_show(uint8_t pct);
 
-/* Write-through echo of the last squelch/bandwidth set via the RADIO menu; the
- * driver has no read-back, so this is the source of truth other screens read from. */
-uint8_t     ui_get_squelch_threshold(void);
-void        ui_set_squelch_threshold(uint8_t level);
-const char *ui_get_bandwidth_str(void);
-void        ui_set_bandwidth_str(const char *bw);
-
-/* VFO step size in Hz set via the RADIO menu's Step row; read by screen_fm_vfo_step(). */
-uint32_t    ui_get_step_hz(void);
-
-/** Battery unit pref from the DISPLAY menu; unused today (fixed placeholder label). */
-bool        ui_get_battery_unit_is_percent(void);
+/* Squelch/bandwidth/VFO-step/battery-unit state set via the Settings menu now lives in
+ * radio_settings.h (settings_get_squelch_level(), settings_get_vfo_step_hz(),
+ * settings_get_battery_unit_is_percent(), etc.) -- other screens should include that
+ * header directly instead of going through ui.h. */
 
 /* ---------- Input bridge ------------------------------------------------ */
 

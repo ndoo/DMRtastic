@@ -5,6 +5,7 @@
 #include "theme.h"
 #include "ui.h"
 #include "battery.h"
+#include "radio_settings.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -106,7 +107,7 @@ static void status_bar_update_battery(void)
 	static bool s_last_is_pct = true;
 	static bool s_first = true;
 
-	bool is_pct = ui_get_battery_unit_is_percent();
+	bool is_pct = settings_get_battery_unit_is_percent();
 	uint16_t mv = battery_get_millivolts();
 
 	if (!s_first && mv == s_last_mv && is_pct == s_last_is_pct) {

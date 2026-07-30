@@ -33,9 +33,9 @@ int codeplug_raw_read(off_t offset, void *buf, size_t len)
 
 int codeplug_write(off_t offset, const void *buf, size_t len)
 {
-	ARG_UNUSED(offset);
 	ARG_UNUSED(buf);
-	ARG_UNUSED(len);
+	LOG_INF("codeplug_write: offset=0x%lx len=%zu -- write path not implemented, no-op",
+		(unsigned long)offset, len);
 	return -ENOTSUP;
 }
 
@@ -223,6 +223,16 @@ int codeplug_get_nv_settings_raw(uint8_t *buf, size_t buf_len, uint32_t *magic_o
 	ARG_UNUSED(buf);
 	ARG_UNUSED(buf_len);
 	ARG_UNUSED(magic_out);
+	return -ENOTSUP;
+#endif
+}
+
+int codeplug_set_nv_settings(const struct cp_nv_settings *in)
+{
+#if DT_NODE_HAS_PROP(CP_MAP, nv_settings)
+	return codeplug_write(CP_OFFSET(nv_settings), in, sizeof(*in));
+#else
+	ARG_UNUSED(in);
 	return -ENOTSUP;
 #endif
 }

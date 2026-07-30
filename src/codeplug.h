@@ -346,7 +346,8 @@ struct cp_nv_settings {
 
 int codeplug_raw_read(off_t offset, void *buf, size_t len);
 
-/* Extension point for a future write path (CPS communication). Not implemented. */
+/* Extension point for a future write path (CPS communication). Not implemented --
+ * always returns -ENOTSUP, logging the call so callers can be confirmed end-to-end. */
 int codeplug_write(off_t offset, const void *buf, size_t len);
 
 /* ---- Per-region accessors ---------------------------------------------- */
@@ -371,6 +372,11 @@ int codeplug_get_signalling_dtmf_durations(struct cp_signalling_dtmf_durations *
 int codeplug_get_vfo_channel(int vfo_ab, struct cp_channel *out); /* 0=A, 1=B */
 int codeplug_get_quickkey(int index_0based, uint16_t *function_id_out); /* 0..9 */
 int codeplug_get_nv_settings_raw(uint8_t *buf, size_t buf_len, uint32_t *magic_out);
+/* Serializes in as-is over the on-flash nv-settings block. Caller should have obtained
+ * in via codeplug_get_nv_settings_raw() (magic-gated) and patched only the fields it
+ * owns, to avoid clobbering unrelated settings. No-op until codeplug_write() is
+ * implemented. */
+int codeplug_set_nv_settings(const struct cp_nv_settings *in);
 int codeplug_get_calibration(struct cp_calibration *out);
 int codeplug_get_jedec_id(uint8_t id[3]);
 

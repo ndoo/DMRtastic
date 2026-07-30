@@ -16,6 +16,7 @@
 #include "screens/screen_settings.h"
 
 #include "battery.h"
+#include "radio_settings.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -35,68 +36,46 @@ LOG_MODULE_REGISTER(app_ui, LOG_LEVEL_INF);
 
 /* ---------- Menu item definitions (defined early; frame_ops needs them) -- */
 
-/* dir is always ±1 (see menu_item_t); + ARRAY_SIZE keeps the modulo non-negative for dir=-1. */
+/* dir is always ±1 (see menu_item_t); + ARRAY_SIZE keeps the modulo non-negative for dir=-1.
+ * State for every item below lives in radio_settings.c (seeded from the codeplug where a
+ * field mapping exists); the cycle/toggle/set functions here only compute the new value
+ * and hand it to the matching settings_set_*(). Applying it to hardware and refreshing the
+ * row's value_str buffer happens in on_settings_changed(), fired synchronously by the
+ * setter via the settings module's subscriber notification. */
 
 static char          s_squelch_val_buf[8] = "55";
 static const uint8_t squelch_presets[] = { 30, 45, 55, 70, 85 };
-static uint8_t        s_squelch_idx = 2; /* index of 55, matches the boot default */
+static uint8_t        s_squelch_idx = 2; /* index of 55, matches radio_settings' default */
 
-/** Cycles the squelch preset table and applies it to the AT1846S. */
+/** Cycles the squelch preset table. */
 static void squelch_cycle(int8_t dir)
 {
 	s_squelch_idx = (uint8_t)(((int)s_squelch_idx + dir + ARRAY_SIZE(squelch_presets)) %
 				  ARRAY_SIZE(squelch_presets));
-
-	uint8_t level = squelch_presets[s_squelch_idx];
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-	int rc = api->set_squelch(trx, level);
-
-	if (rc < 0) {
-		LOG_WRN("set_squelch(%u) failed: %d", level, rc);
-	}
-	snprintf(s_squelch_val_buf, sizeof(s_squelch_val_buf), "%u", level);
-	ui_set_squelch_threshold(level);
+	settings_set_squelch_level(squelch_presets[s_squelch_idx]);
 }
 
 static char s_bw_val_buf[8] = "25K";
-static bool s_bw_is_25k = true;
 
-/** Toggles 25K/12.5K bandwidth on the AT1846S; dir is ignored (2-state toggle). */
+/** Toggles 25K/12.5K bandwidth; dir is ignored (2-state toggle). */
 static void bandwidth_cycle(int8_t dir)
 {
 	ARG_UNUSED(dir);
-	s_bw_is_25k = !s_bw_is_25k;
-
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-	int rc = api->set_bandwidth(trx, s_bw_is_25k ? RADIO_BW_25K : RADIO_BW_12K5);
-
-	if (rc < 0) {
-		LOG_WRN("set_bandwidth failed: %d", rc);
-	}
-	snprintf(s_bw_val_buf, sizeof(s_bw_val_buf), "%s", s_bw_is_25k ? "25K" : "12.5K");
-	ui_set_bandwidth_str(s_bw_val_buf);
+	settings_set_bandwidth_is_25k(!settings_get_bandwidth_is_25k());
 }
 
 /* VFO Up/Down step size, cycled from the RADIO settings menu. */
 static const uint32_t    step_presets_hz[]    = { 2500, 5000, 6250, 12500, 25000 };
 static const char *const step_preset_labels[] = { "2.5k", "5k", "6.25k", "12.5k", "25k" };
-static uint8_t            s_step_idx = 1; /* 5 kHz default */
+static uint8_t            s_step_idx = 1; /* 5 kHz default, matches radio_settings' default */
 static char               s_step_val_buf[8] = "5k";
-
-uint32_t ui_get_step_hz(void)
-{
-	return step_presets_hz[s_step_idx];
-}
 
 /** Cycles the VFO step-size preset table. */
 static void step_cycle(int8_t dir)
 {
 	s_step_idx = (uint8_t)(((int)s_step_idx + dir + ARRAY_SIZE(step_presets_hz)) %
 			       ARRAY_SIZE(step_presets_hz));
-	snprintf(s_step_val_buf, sizeof(s_step_val_buf), "%s",
-		 step_preset_labels[s_step_idx]);
+	settings_set_vfo_step_hz(step_presets_hz[s_step_idx]);
 }
 
 static void stub_item(int8_t dir)
@@ -105,78 +84,66 @@ static void stub_item(int8_t dir)
 	LOG_INF("item: not yet implemented");
 }
 
-/* PWM backlight via display_set_brightness() (0-255, tracked as percent).
- * Floored at 10%: measured fully dark by 6% on this hardware. */
-#define BRIGHTNESS_MAX_PCT  100
-#define BRIGHTNESS_MIN_PCT   10
+/* PWM backlight via display_set_brightness() (0-255, tracked as percent). Step sizes
+ * are UI-domain granularity; the valid [min, max] range for each is owned by
+ * radio_settings (settings_get_range()) since settings_set_*() clamps to it too --
+ * see that module for why (fully dark by 6% on this hardware, hence the 10% floor). */
 #define BRIGHTNESS_STEP_PCT  10
 
-/* Off-level after the timeout below; 1-9% is skipped (same dead-zone reason as
- * Brightness) and it's clamped a step below Brightness via backlight_off_ceiling(). */
 #define BACKLIGHT_OFF_STEP_PCT        10
 #define BACKLIGHT_OFF_STEP_SMALL_PCT   1
 #define BACKLIGHT_OFF_EDGE_BAND_PCT   10
 
-static char    s_backlight_off_val_buf[8] = "10%";
-static uint8_t s_backlight_off_pct = BRIGHTNESS_MIN_PCT;
-
-static char    s_brightness_val_buf[8] = "100%";
-static uint8_t s_brightness_pct = 100; /* matches boot default */
+static char s_backlight_off_val_buf[8] = "10%";
+static char s_brightness_val_buf[8] = "100%";
 
 /* Highest Off-level allowed: one dimming step below Brightness. */
 static uint8_t backlight_off_ceiling(void)
 {
-	return (s_brightness_pct > BACKLIGHT_OFF_STEP_PCT)
-		       ? (uint8_t)(s_brightness_pct - BACKLIGHT_OFF_STEP_PCT)
+	uint8_t brightness_pct = settings_get_brightness_pct();
+
+	return (brightness_pct > BACKLIGHT_OFF_STEP_PCT)
+		       ? (uint8_t)(brightness_pct - BACKLIGHT_OFF_STEP_PCT)
 		       : 0;
 }
 
-/** Steps display brightness by dir, clamping and re-clamping backlight off-level below it. */
+/** Steps display brightness by dir, re-clamping backlight off-level below it.
+ * settings_set_brightness_pct() clamps the new value into range itself. */
 static void brightness_cycle(int8_t dir)
 {
-	int new_pct = (int)s_brightness_pct + (int)dir * BRIGHTNESS_STEP_PCT;
+	int new_pct = (int)settings_get_brightness_pct() + (int)dir * BRIGHTNESS_STEP_PCT;
 
-	if (new_pct > BRIGHTNESS_MAX_PCT) {
-		new_pct = BRIGHTNESS_MAX_PCT;
-	} else if (new_pct < BRIGHTNESS_MIN_PCT) {
-		new_pct = BRIGHTNESS_MIN_PCT;
-	}
-	s_brightness_pct = (uint8_t)new_pct;
-
-	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
-	int rc = display_set_brightness(
-		disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)s_brightness_pct * 255, 100));
-
-	if (rc < 0) {
-		LOG_WRN("display_set_brightness(%u%%) failed: %d", s_brightness_pct, rc);
-	}
-	snprintf(s_brightness_val_buf, sizeof(s_brightness_val_buf), "%u%%", s_brightness_pct);
+	settings_set_brightness_pct((uint8_t)new_pct);
 
 	/* Re-clamp Off-level down if Brightness was just lowered past it. */
 	uint8_t off_ceiling = backlight_off_ceiling();
 
-	if (s_backlight_off_pct > off_ceiling) {
-		s_backlight_off_pct = off_ceiling;
-		snprintf(s_backlight_off_val_buf, sizeof(s_backlight_off_val_buf), "%u%%",
-			 s_backlight_off_pct);
+	if (settings_get_backlight_off_pct() > off_ceiling) {
+		settings_set_backlight_off_pct(off_ceiling);
 	}
 }
 
 /** Steps the backlight off-level, using a smaller step near the range edges. */
 static void backlight_off_level_cycle(int8_t dir)
 {
+	/* Shares Brightness's range: same PWM dead zone, see radio_settings.c. */
+	int32_t brightness_min, brightness_max;
+
+	settings_get_range(SETTINGS_KEY_BRIGHTNESS, &brightness_min, &brightness_max);
+
+	uint8_t current = settings_get_backlight_off_pct();
 	int new_pct;
 
-	if (dir > 0 && s_backlight_off_pct == 0) {
-		new_pct = BRIGHTNESS_MIN_PCT;
+	if (dir > 0 && current == 0) {
+		new_pct = (int)brightness_min;
 	} else {
-		uint8_t step = (s_backlight_off_pct < BACKLIGHT_OFF_EDGE_BAND_PCT ||
-				s_backlight_off_pct > BRIGHTNESS_MAX_PCT - BACKLIGHT_OFF_EDGE_BAND_PCT)
+		uint8_t step = (current < BACKLIGHT_OFF_EDGE_BAND_PCT ||
+				current > (uint8_t)brightness_max - BACKLIGHT_OFF_EDGE_BAND_PCT)
 				       ? BACKLIGHT_OFF_STEP_SMALL_PCT
 				       : BACKLIGHT_OFF_STEP_PCT;
-		new_pct = (int)s_backlight_off_pct + (int)dir * step;
+		new_pct = (int)current + (int)dir * step;
 
-		if (new_pct < BRIGHTNESS_MIN_PCT) {
+		if (new_pct < brightness_min) {
 			new_pct = 0; /* skip the unreachable 1-9% zone */
 		}
 	}
@@ -186,38 +153,31 @@ static void backlight_off_level_cycle(int8_t dir)
 	if (new_pct > ceiling) {
 		new_pct = ceiling;
 	}
-	s_backlight_off_pct = (uint8_t)new_pct;
-	snprintf(s_backlight_off_val_buf, sizeof(s_backlight_off_val_buf), "%u%%",
-		 s_backlight_off_pct);
+	settings_set_backlight_off_pct((uint8_t)new_pct);
 }
 
 /* Idle seconds before dimming to the off-level (see ui_note_activity()); 0 = never.
- * Timeout only — no Auto/Squelch/Manual/Buttons mode picker. */
-#define SCREEN_TIMEOUT_MAX_S  30
+ * Timeout only — no Auto/Squelch/Manual/Buttons mode picker. Max is owned by
+ * radio_settings (settings_get_range()); this is just the UI's step granularity. */
 #define SCREEN_TIMEOUT_STEP_S  5
 
-static char    s_screen_timeout_val_buf[8] = "Off";
-static uint8_t s_screen_timeout_s;
+static char s_screen_timeout_val_buf[8] = "Off";
 
 /** Steps the screen-dim idle timeout; 0 means never dim. */
 static void screen_dim_timeout_cycle(int8_t dir)
 {
-	int new_s = (int)s_screen_timeout_s + (int)dir * SCREEN_TIMEOUT_STEP_S;
+	int32_t min, max;
 
-	if (new_s > SCREEN_TIMEOUT_MAX_S) {
-		new_s = SCREEN_TIMEOUT_MAX_S;
-	}
-	if (new_s < 0) {
-		new_s = 0;
-	}
-	s_screen_timeout_s = (uint8_t)new_s;
+	settings_get_range(SETTINGS_KEY_SCREEN_TIMEOUT, &min, &max);
 
-	if (s_screen_timeout_s == 0) {
-		snprintf(s_screen_timeout_val_buf, sizeof(s_screen_timeout_val_buf), "Off");
-	} else {
-		snprintf(s_screen_timeout_val_buf, sizeof(s_screen_timeout_val_buf), "%us",
-			 s_screen_timeout_s);
+	int new_s = (int)settings_get_screen_timeout_s() + (int)dir * SCREEN_TIMEOUT_STEP_S;
+
+	if (new_s > max) {
+		new_s = (int)max;
+	} else if (new_s < min) {
+		new_s = (int)min;
 	}
+	settings_set_screen_timeout_s((uint8_t)new_s);
 }
 
 static char s_invert_val_buf[8] = "Off";
@@ -225,43 +185,25 @@ static char s_invert_val_buf[8] = "Off";
 /** Sets screen invert on/off (dir>0 = on); set-semantics, not a toggle. */
 static void screen_invert_set(int8_t dir)
 {
-	bool on = dir > 0;
-	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
-	int rc = hx8353e_set_inverted(disp, on);
-
-	if (rc < 0) {
-		LOG_WRN("hx8353e_set_inverted(%d) failed: %d", on, rc);
-	}
-	snprintf(s_invert_val_buf, sizeof(s_invert_val_buf), "%s", on ? "On" : "Off");
+	settings_set_screen_invert(dir > 0);
 }
 
 /* Gates ui_overlay_volume_show()'s toast; volume itself still applies. */
 static char s_visual_volume_val_buf[8] = "On";
-static bool s_visual_volume_enabled = true;
 
 static void visual_volume_toggle(int8_t dir)
 {
 	ARG_UNUSED(dir);
-	s_visual_volume_enabled = !s_visual_volume_enabled;
-	snprintf(s_visual_volume_val_buf, sizeof(s_visual_volume_val_buf), "%s",
-		 s_visual_volume_enabled ? "On" : "Off");
+	settings_set_visual_volume_enabled(!settings_get_visual_volume_enabled());
 }
 
 /* Stored pref only; battery label is a fixed placeholder until ADC exists. */
 static char s_battery_unit_val_buf[8] = "%";
-static bool s_battery_unit_is_percent = true;
 
 static void battery_unit_toggle(int8_t dir)
 {
 	ARG_UNUSED(dir);
-	s_battery_unit_is_percent = !s_battery_unit_is_percent;
-	snprintf(s_battery_unit_val_buf, sizeof(s_battery_unit_val_buf), "%s",
-		 s_battery_unit_is_percent ? "%" : "V");
-}
-
-bool ui_get_battery_unit_is_percent(void)
-{
-	return s_battery_unit_is_percent;
+	settings_set_battery_unit_is_percent(!settings_get_battery_unit_is_percent());
 }
 
 /* Disabling forces both LEDs off; nothing lights them yet when enabled. */
@@ -270,20 +212,10 @@ static const struct gpio_dt_spec led_red_spec   = GPIO_DT_SPEC_GET(DT_ALIAS(led1
 
 static char s_leds_enabled_val_buf[8] = "On";
 
-/** Sets LEDs enabled on/off (dir>0 = on); disabling force-clears both LED GPIOs. */
+/** Sets LEDs enabled on/off (dir>0 = on). */
 static void leds_enabled_set(int8_t dir)
 {
-	bool on = dir > 0;
-
-	if (!on) {
-		int rc1 = gpio_pin_set_dt(&led_green_spec, 0);
-		int rc2 = gpio_pin_set_dt(&led_red_spec, 0);
-
-		if (rc1 < 0 || rc2 < 0) {
-			LOG_WRN("LED force-off failed: %d/%d", rc1, rc2);
-		}
-	}
-	snprintf(s_leds_enabled_val_buf, sizeof(s_leds_enabled_val_buf), "%s", on ? "On" : "Off");
+	settings_set_leds_enabled(dir > 0);
 }
 
 /* Permanently blocked (no GPS/RTC/contacts/DMR); shown as N/A to keep the full menu shape visible. */
@@ -291,6 +223,104 @@ static void unavailable_item(int8_t dir)
 {
 	ARG_UNUSED(dir);
 	LOG_INF("item: permanently unavailable on this hardware");
+}
+
+/** Applies a settings change to hardware (where applicable) and refreshes the row's
+ * value_str buffer. Registered once via settings_subscribe() in ui_init(); also fired
+ * for every key by settings_apply_all() at boot. */
+static void on_settings_changed(enum settings_key key)
+{
+	switch (key) {
+	case SETTINGS_KEY_SQUELCH: {
+		uint8_t level = settings_get_squelch_level();
+		const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
+		const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
+		int rc = api->set_squelch(trx, level);
+
+		if (rc < 0) {
+			LOG_WRN("set_squelch(%u) failed: %d", level, rc);
+		}
+		snprintf(s_squelch_val_buf, sizeof(s_squelch_val_buf), "%u", level);
+		break;
+	}
+	case SETTINGS_KEY_BANDWIDTH: {
+		bool is_25k = settings_get_bandwidth_is_25k();
+		const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
+		const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
+		int rc = api->set_bandwidth(trx, is_25k ? RADIO_BW_25K : RADIO_BW_12K5);
+
+		if (rc < 0) {
+			LOG_WRN("set_bandwidth failed: %d", rc);
+		}
+		snprintf(s_bw_val_buf, sizeof(s_bw_val_buf), "%s", is_25k ? "25K" : "12.5K");
+		break;
+	}
+	case SETTINGS_KEY_VFO_STEP:
+		/* s_step_idx already matches (only step_cycle() changes this key). */
+		snprintf(s_step_val_buf, sizeof(s_step_val_buf), "%s", step_preset_labels[s_step_idx]);
+		break;
+	case SETTINGS_KEY_BRIGHTNESS: {
+		uint8_t pct = settings_get_brightness_pct();
+		const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
+		int rc = display_set_brightness(
+			disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)pct * 255, 100));
+
+		if (rc < 0) {
+			LOG_WRN("display_set_brightness(%u%%) failed: %d", pct, rc);
+		}
+		snprintf(s_brightness_val_buf, sizeof(s_brightness_val_buf), "%u%%", pct);
+		break;
+	}
+	case SETTINGS_KEY_BACKLIGHT_OFF:
+		snprintf(s_backlight_off_val_buf, sizeof(s_backlight_off_val_buf), "%u%%",
+			 settings_get_backlight_off_pct());
+		break;
+	case SETTINGS_KEY_SCREEN_TIMEOUT: {
+		uint8_t s = settings_get_screen_timeout_s();
+
+		if (s == 0) {
+			snprintf(s_screen_timeout_val_buf, sizeof(s_screen_timeout_val_buf), "Off");
+		} else {
+			snprintf(s_screen_timeout_val_buf, sizeof(s_screen_timeout_val_buf), "%us", s);
+		}
+		break;
+	}
+	case SETTINGS_KEY_SCREEN_INVERT: {
+		bool on = settings_get_screen_invert();
+		const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
+		int rc = hx8353e_set_inverted(disp, on);
+
+		if (rc < 0) {
+			LOG_WRN("hx8353e_set_inverted(%d) failed: %d", on, rc);
+		}
+		snprintf(s_invert_val_buf, sizeof(s_invert_val_buf), "%s", on ? "On" : "Off");
+		break;
+	}
+	case SETTINGS_KEY_VISUAL_VOLUME:
+		snprintf(s_visual_volume_val_buf, sizeof(s_visual_volume_val_buf), "%s",
+			 settings_get_visual_volume_enabled() ? "On" : "Off");
+		break;
+	case SETTINGS_KEY_BATTERY_UNIT:
+		snprintf(s_battery_unit_val_buf, sizeof(s_battery_unit_val_buf), "%s",
+			 settings_get_battery_unit_is_percent() ? "%" : "V");
+		break;
+	case SETTINGS_KEY_LEDS_ENABLED: {
+		bool on = settings_get_leds_enabled();
+
+		if (!on) {
+			int rc1 = gpio_pin_set_dt(&led_green_spec, 0);
+			int rc2 = gpio_pin_set_dt(&led_red_spec, 0);
+
+			if (rc1 < 0 || rc2 < 0) {
+				LOG_WRN("LED force-off failed: %d/%d", rc1, rc2);
+			}
+		}
+		snprintf(s_leds_enabled_val_buf, sizeof(s_leds_enabled_val_buf), "%s", on ? "On" : "Off");
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 static const menu_item_t radio_items[] = {
@@ -456,7 +486,7 @@ static bool    s_backlight_dimmed;
 /** Applies either the dimmed off-level or full brightness to the backlight PWM. */
 static void backlight_apply_dim(bool dim)
 {
-	uint8_t pct = dim ? s_backlight_off_pct : s_brightness_pct;
+	uint8_t pct = dim ? settings_get_backlight_off_pct() : settings_get_brightness_pct();
 	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
 	int rc = display_set_brightness(disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)pct * 255, 100));
 
@@ -489,8 +519,10 @@ static void update_timer_cb(lv_timer_t *t)
 		}
 	}
 
-	if (s_screen_timeout_s > 0 && !s_backlight_dimmed &&
-	    (k_uptime_get() - s_last_activity_ms) >= (int64_t)s_screen_timeout_s * 1000) {
+	uint8_t screen_timeout_s = settings_get_screen_timeout_s();
+
+	if (screen_timeout_s > 0 && !s_backlight_dimmed &&
+	    (k_uptime_get() - s_last_activity_ms) >= (int64_t)screen_timeout_s * 1000) {
 		backlight_apply_dim(true);
 	}
 }
@@ -555,32 +587,6 @@ static void apply_volume(uint16_t raw)
 	s_volume_raw = raw;
 	radio_set_volume_pct(raw);
 	ui_overlay_volume_show(volume_display_pct(raw));
-}
-
-/* Squelch/bandwidth echo state -- the driver has no read-back, so the RADIO menu's
- * last setting is the only source of truth. 55 matches main.c's boot default. */
-static uint8_t s_squelch_threshold = 55;
-static char    s_bw_str[8] = "25K";
-
-uint8_t ui_get_squelch_threshold(void)
-{
-	return s_squelch_threshold;
-}
-
-void ui_set_squelch_threshold(uint8_t level)
-{
-	s_squelch_threshold = level;
-}
-
-const char *ui_get_bandwidth_str(void)
-{
-	return s_bw_str;
-}
-
-void ui_set_bandwidth_str(const char *bw)
-{
-	strncpy(s_bw_str, bw, sizeof(s_bw_str) - 1);
-	s_bw_str[sizeof(s_bw_str) - 1] = '\0';
 }
 
 /** Routes a drained ui_action_t to the overlay, active frame, or global handler. */
@@ -688,6 +694,14 @@ void ui_init(void)
 	lv_group_set_default(s_input_group);
 	s_keypad_indev = lvgl_input_get_indev(DEVICE_DT_GET(DT_NODELABEL(lvgl_keypad)));
 
+	/* Load settings (codeplug where mapped, else firmware defaults), register this
+	 * module as a consumer, then push the result to hardware and the value_str
+	 * buffers below before any frame is created -- so the first paint already shows
+	 * the right values instead of waiting for the next 200 ms update tick. */
+	settings_init();
+	settings_subscribe(on_settings_changed);
+	settings_apply_all();
+
 	/* Overlays — created once, parented to lv_layer_top() */
 	overlay_volume_create();
 	overlay_quickmenu_create();
@@ -787,7 +801,7 @@ void ui_switch_screen(screen_id_t id)
 /** Shows the volume overlay only if the Visual volume preference is on. */
 void ui_overlay_volume_show(uint8_t pct)
 {
-	if (s_visual_volume_enabled) {
+	if (settings_get_visual_volume_enabled()) {
 		overlay_volume_show(pct);
 	}
 }
