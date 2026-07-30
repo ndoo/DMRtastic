@@ -354,7 +354,7 @@ int codeplug_write(off_t offset, const void *buf, size_t len);
 int codeplug_get_device_info(struct cp_device_info *out);
 int codeplug_get_general_settings(struct cp_general_settings *out);
 int codeplug_get_channel(int index_1based, struct cp_channel *out);
-/* Reference source only confirms the name[0]==0xFF "unused" convention for contacts -- plausible but unverified here. */
+/* Hardware-confirmed: index 1024 on a real codeplug reads name[0]==0xFF and is correctly reported unused. */
 bool codeplug_channel_is_in_use(const struct cp_channel *ch);
 int codeplug_get_contact(int index_1based, struct cp_contact *out);
 bool codeplug_contact_is_in_use(const struct cp_contact *c);
@@ -363,7 +363,7 @@ int codeplug_get_dtmf_contact(int index_1based, struct cp_dtmf_contact *out);
 int codeplug_get_zone(int slot_index_0based, struct cp_zone *out, int *channels_per_zone_out);
 int codeplug_get_zone_inuse_bitmap(uint8_t bitmap[32]);
 int codeplug_get_rx_group(int index_1based, struct cp_rx_group *out); /* 1..76 */
-/* Same caveat as codeplug_channel_is_in_use() -- unverified for RX group lists. */
+/* Unlike codeplug_channel_is_in_use(), not directly hardware-exercised -- same convention, untested slot type. */
 bool codeplug_rx_group_is_in_use(const struct cp_rx_group *g);
 int codeplug_get_aprs_config(int index_1based, struct cp_aprs_config *out); /* 1..8 */
 int codeplug_get_signalling_dtmf(struct cp_signalling_dtmf *out);
