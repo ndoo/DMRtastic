@@ -3,20 +3,20 @@
 
 /*
  * Screen manager — static top-level frames, meshtastic-device-ui convention.
- * All LVGL access happens on the LVGL thread; see ui.h for the action-queue boundary.
+ * All LVGL access happens on the LVGL thread; see app.h for the action-queue boundary.
  */
 
-#include "ui.h"
-#include "theme.h"
-#include "status_bar.h"
-#include "overlays/overlay_volume.h"
-#include "overlays/overlay_quickmenu.h"
-#include "screens/screen_boot.h"
-#include "screens/screen_fm_vfo.h"
-#include "screens/screen_settings.h"
+#include "app.h"
+#include "view/theme.h"
+#include "view/status_bar.h"
+#include "view/overlays/overlay_volume.h"
+#include "view/overlays/overlay_quickmenu.h"
+#include "view/screens/screen_boot.h"
+#include "view/screens/screen_fm_vfo.h"
+#include "view/screens/screen_settings.h"
 
-#include "battery.h"
-#include "radio_settings.h"
+#include "model/battery.h"
+#include "model/radio_settings.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -188,7 +188,7 @@ static void screen_invert_set(int8_t dir)
 	settings_set_screen_invert(dir > 0);
 }
 
-/* Gates ui_overlay_volume_show()'s toast; volume itself still applies. */
+/* Gates app_overlay_volume_show()'s toast; volume itself still applies. */
 static char s_visual_volume_val_buf[8] = "On";
 
 static void visual_volume_toggle(int8_t dir)
@@ -226,7 +226,7 @@ static void unavailable_item(int8_t dir)
 }
 
 /** Applies a settings change to hardware (where applicable) and refreshes the row's
- * value_str buffer. Registered once via settings_subscribe() in ui_init(); also fired
+ * value_str buffer. Registered once via settings_subscribe() in app_init(); also fired
  * for every key by settings_apply_all() at boot. */
 static void on_settings_changed(enum settings_key key)
 {
@@ -358,7 +358,7 @@ static lv_obj_t *create_settings(lv_obj_t *parent)
 }
 
 /* ---------- Frame ops table -----------------------------------------------
- * SCREEN_BOOT has no entry -- one-shot transient, handled by ui_init()/ui_switch_screen(), not the static-frame model. */
+ * SCREEN_BOOT has no entry -- one-shot transient, handled by app_init()/app_switch_screen(), not the static-frame model. */
 
 typedef struct {
 	lv_obj_t *(*create)(lv_obj_t *parent);
@@ -371,7 +371,7 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
 	case UI_ACTION_OK:
-		ui_push_screen(SCREEN_SETTINGS);
+		app_push_screen(SCREEN_SETTINGS);
 		break;
 	case UI_ACTION_UP:
 	case UI_ACTION_ENCODER_CW:
@@ -447,13 +447,13 @@ static void update_indev_group_attachment(void)
 
 K_MSGQ_DEFINE(ui_events, sizeof(ui_action_t), UI_EVENT_QUEUE_LEN, 1);
 
-void ui_post_action(ui_action_t action)
+void app_post_action(ui_action_t action)
 {
 	/* Non-blocking: drop if queue full rather than block the caller. */
 	(void)k_msgq_put(&ui_events, &action, K_NO_WAIT);
 }
 
-/* Depth-1, overwrite-latest: the pot reports a continuous position, so only the latest value before ui_tick() matters. */
+/* Depth-1, overwrite-latest: the pot reports a continuous position, so only the latest value before app_tick() matters. */
 K_MSGQ_DEFINE(ui_vol_events, sizeof(uint16_t), 1, 1);
 
 /* vol_axis_ch's out-min/out-max mirror in-min/in-max exactly (board DTS). */
@@ -464,8 +464,8 @@ K_MSGQ_DEFINE(ui_vol_events, sizeof(uint16_t), 1, 1);
 /* ~7% of the calibrated span per VOL_UP/VOL_DN key press. */
 #define VOLUME_STEP_RAW (VOL_AXIS_SPAN * 7 / 100)
 
-/** Clamps and overwrite-latest posts a raw volume-pot reading for ui_tick() to apply. */
-void ui_post_volume_abs(uint16_t raw)
+/** Clamps and overwrite-latest posts a raw volume-pot reading for app_tick() to apply. */
+void app_post_volume_abs(uint16_t raw)
 {
 	if (raw > VOL_AXIS_MAX) {
 		raw = VOL_AXIS_MAX;
@@ -586,7 +586,7 @@ static void apply_volume(uint16_t raw)
 {
 	s_volume_raw = raw;
 	radio_set_volume_pct(raw);
-	ui_overlay_volume_show(volume_display_pct(raw));
+	app_overlay_volume_show(volume_display_pct(raw));
 }
 
 /** Routes a drained ui_action_t to the overlay, active frame, or global handler. */
@@ -602,7 +602,7 @@ static void dispatch_action(ui_action_t action)
 			   screen_settings_in_rows_level()) {
 			screen_settings_exit_rows_level();
 		} else {
-			ui_pop_screen();
+			app_pop_screen();
 		}
 		break;
 	case UI_ACTION_VOL_UP:
@@ -658,7 +658,7 @@ static void dispatch_action(ui_action_t action)
 /* ---------- Public API -------------------------------------------------- */
 
 /** Builds the screen, status bar, overlays, and static frames; starts the update timer. */
-void ui_init(void)
+void app_init(void)
 {
 	lv_obj_t *scr = lv_obj_create(NULL);
 	lv_obj_set_style_bg_color(scr, theme_colors()->bg, LV_PART_MAIN);
@@ -723,7 +723,7 @@ void ui_init(void)
 }
 
 /** Drains queued actions and the latest volume reading, then re-syncs input group attachment. */
-void ui_tick(void)
+void app_tick(void)
 {
 	ui_action_t action;
 	uint16_t vol_raw;
@@ -742,7 +742,7 @@ void ui_tick(void)
 }
 
 /** Hides the current frame and shows id, pushing it onto the Back stack. */
-void ui_push_screen(screen_id_t id)
+void app_push_screen(screen_id_t id)
 {
 	if (id >= SCREEN_COUNT || frame_ops[id].create == NULL) {
 		LOG_WRN("push: screen %d not implemented", id);
@@ -765,7 +765,7 @@ void ui_push_screen(screen_id_t id)
 }
 
 /** Pops the Back stack, hiding the current frame and revealing the previous one. */
-void ui_pop_screen(void)
+void app_pop_screen(void)
 {
 	if (s_frame_top <= 0) {
 		return; /* nothing to go back to */
@@ -779,7 +779,7 @@ void ui_pop_screen(void)
 }
 
 /** One-time boot transition: destroys the boot splash and shows id as the base frame. */
-void ui_switch_screen(screen_id_t id)
+void app_switch_screen(screen_id_t id)
 {
 	if (s_boot_obj) {
 		screen_boot_destroy(s_boot_obj);
@@ -799,7 +799,7 @@ void ui_switch_screen(screen_id_t id)
 }
 
 /** Shows the volume overlay only if the Visual volume preference is on. */
-void ui_overlay_volume_show(uint8_t pct)
+void app_overlay_volume_show(uint8_t pct)
 {
 	if (settings_get_visual_volume_enabled()) {
 		overlay_volume_show(pct);

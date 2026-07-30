@@ -12,7 +12,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 
-#include "ui.h"
+#include "app.h"
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
@@ -71,46 +71,46 @@ static void handle_key_event(const struct input_event *evt)
 	switch (evt->code) {
 	case INPUT_KEY_ENTER:
 		if (pressed) {
-			ui_post_action(UI_ACTION_OK);
+			app_post_action(UI_ACTION_OK);
 		}
 		return;
 	case INPUT_KEY_UP:
 		if (pressed) {
-			ui_post_action(UI_ACTION_UP);
+			app_post_action(UI_ACTION_UP);
 		}
 		return;
 	case INPUT_KEY_DOWN:
 		if (pressed) {
-			ui_post_action(UI_ACTION_DOWN);
+			app_post_action(UI_ACTION_DOWN);
 		}
 		return;
 	case INPUT_KEY_BACK:
 		if (pressed) {
-			ui_post_action(UI_ACTION_BACK);
+			app_post_action(UI_ACTION_BACK);
 		}
 		return;
 	case DMRTASTIC_KEY_SK2:
 		if (pressed) {
-			ui_post_action(UI_ACTION_SK2);
+			app_post_action(UI_ACTION_SK2);
 		}
 		return;
 	case DMRTASTIC_KEY_SK1:
 		if (pressed) {
 			s_sk1_press_uptime = k_uptime_get();
 		} else if (k_uptime_get() - s_sk1_press_uptime >= SK1_LONG_PRESS_MS) {
-			ui_post_action(UI_ACTION_SK1);
+			app_post_action(UI_ACTION_SK1);
 		}
 		return;
 	case DMRTASTIC_KEY_PTT:
 	case DMRTASTIC_KEY_PTT_EXT:
-		ui_post_action(pressed ? UI_ACTION_PTT : UI_ACTION_PTT_RELEASE);
+		app_post_action(pressed ? UI_ACTION_PTT : UI_ACTION_PTT_RELEASE);
 		return;
 	default:
 		break;
 	}
 
 	if (pressed && digit_action_for(evt->code, &action)) {
-		ui_post_action(action);
+		app_post_action(action);
 	}
 }
 
@@ -137,7 +137,7 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 			int32_t count = evt->value < 0 ? -evt->value : evt->value;
 
 			for (int32_t i = 0; i < count; i++) {
-				ui_post_action(action);
+				app_post_action(action);
 			}
 		}
 		break;
@@ -159,7 +159,7 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 			    diff >= VOLUME_HYSTERESIS ||
 			    climbing_to_max || climbing_to_min) {
 				s_last_stable_vol_raw = raw;
-				ui_post_volume_abs(raw);
+				app_post_volume_abs(raw);
 			}
 		}
 		break;

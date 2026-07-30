@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-/** Builds the hidden volume overlay panel; call once from ui_init(). */
+/** Builds the hidden volume overlay panel; call once from app_init(). */
 void overlay_volume_create(void);
 
 /** Shows the overlay at pct and resets the 2 s auto-dismiss timer. */

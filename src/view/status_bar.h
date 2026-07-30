@@ -14,7 +14,7 @@
 
 #define UI_STATUS_BAR_HEIGHT 14
 
-/** Builds the status bar widgets under parent; call once from ui_init(). */
+/** Builds the status bar widgets under parent; call once from app_init(). */
 void status_bar_create(lv_obj_t *parent);
 
 /** Refreshes the RSSI bars and battery label; call periodically. */

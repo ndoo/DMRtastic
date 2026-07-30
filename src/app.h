@@ -3,11 +3,11 @@
 
 /*
  * Public UI API — the only header other modules need to include.
- * All LVGL access is confined to the LVGL thread; post ui_action_t via ui_post_action().
+ * All LVGL access is confined to the LVGL thread; post ui_action_t via app_post_action().
  */
 
-#ifndef DMRTASTIC_UI_H_
-#define DMRTASTIC_UI_H_
+#ifndef DMRTASTIC_APP_H_
+#define DMRTASTIC_APP_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -31,7 +31,7 @@ typedef enum {
 
 /* ---------- Input actions ----------------------------------------------- */
 
-/* Device-agnostic action codes; ui_input.c translates DTS zephyr,code values to these.
+/* Device-agnostic action codes; app_input.c translates DTS zephyr,code values to these.
  * Up/Down/tab navigation is native LVGL group focus, not this enum; the encoder adjusts the focused setting via ENCODER_CW/CCW instead. */
 typedef enum {
 	UI_ACTION_BACK,        /* leave the current frame (Red / Back key) */
@@ -63,38 +63,38 @@ typedef enum {
 /* ---------- Lifecycle --------------------------------------------------- */
 
 /** Called once from the LVGL thread before the timer loop starts. */
-void ui_init(void);
+void app_init(void);
 
 /** Called once per loop iteration before lv_timer_handler(); drains queued actions to the active screen. */
-void ui_tick(void);
+void app_tick(void);
 
 /* ---------- Navigation -------------------------------------------------- */
 
-/** Shows frame id (already created at ui_init()) and hides the current one; no alloc. */
-void ui_push_screen(screen_id_t id);
+/** Shows frame id (already created at app_init()) and hides the current one; no alloc. */
+void app_push_screen(screen_id_t id);
 
 /** Hide the current frame and restore the previous one (Back/Red). */
-void ui_pop_screen(void);
+void app_pop_screen(void);
 
 /** One-time boot transition: destroys the boot splash and shows id for the first time. */
-void ui_switch_screen(screen_id_t id);
+void app_switch_screen(screen_id_t id);
 
 /* ---------- Overlays ---------------------------------------------------- */
 
 /** Show the volume overlay set to pct (0-100). Auto-dismisses after 2 s. */
-void ui_overlay_volume_show(uint8_t pct);
+void app_overlay_volume_show(uint8_t pct);
 
 /* Squelch/bandwidth/VFO-step/battery-unit state set via the Settings menu now lives in
  * radio_settings.h (settings_get_squelch_level(), settings_get_vfo_step_hz(),
  * settings_get_battery_unit_is_percent(), etc.) -- other screens should include that
- * header directly instead of going through ui.h. */
+ * header directly instead of going through app.h. */
 
 /* ---------- Input bridge ------------------------------------------------ */
 
 /** Safe to call from any thread context; never from hard-ISR. */
-void ui_post_action(ui_action_t action);
+void app_post_action(ui_action_t action);
 
 /** Posts an absolute volume-pot reading (raw, native ADC span); overwrite-latest. Safe from any thread, never hard-ISR. */
-void ui_post_volume_abs(uint16_t raw);
+void app_post_volume_abs(uint16_t raw);
 
-#endif /* DMRTASTIC_UI_H_ */
+#endif /* DMRTASTIC_APP_H_ */

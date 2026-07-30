@@ -11,7 +11,7 @@
 
 #include <stdbool.h>
 
-/** Builds the hidden quick-menu panel; call once from ui_init(). */
+/** Builds the hidden quick-menu panel; call once from app_init(). */
 void overlay_quickmenu_create(void);
 
 /** Shows the panel and focuses its first row. */

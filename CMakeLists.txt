@@ -7,10 +7,12 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(dmrtastic)
 
 FILE(GLOB app_sources src/*.c)
-FILE(GLOB ui_sources
-    src/ui/*.c
-    src/ui/screens/*.c
-    src/ui/overlays/*.c
+FILE(GLOB model_sources src/model/*.c)
+FILE(GLOB view_sources
+    src/view/*.c
+    src/view/screens/*.c
+    src/view/overlays/*.c
 )
-target_sources(app PRIVATE ${app_sources} ${ui_sources})
+FILE(GLOB controller_sources src/controller/*.c)
+target_sources(app PRIVATE ${app_sources} ${model_sources} ${view_sources} ${controller_sources})
 target_include_directories(app PRIVATE src)

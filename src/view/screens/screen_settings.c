@@ -3,7 +3,7 @@
 
 #include "screen_settings.h"
 #include "../theme.h"
-#include "../ui.h"
+#include "app.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>

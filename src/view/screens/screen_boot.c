@@ -3,7 +3,7 @@
 
 #include "screen_boot.h"
 #include "../theme.h"
-#include "../ui.h"
+#include "app.h"
 
 #include <lvgl.h>
 #include <zephyr/logging/log.h>
@@ -20,7 +20,7 @@ static lv_timer_t *s_boot_timer;
 static void boot_timer_cb(lv_timer_t *t)
 {
 	ARG_UNUSED(t);
-	ui_switch_screen(SCREEN_FM_VFO);
+	app_switch_screen(SCREEN_FM_VFO);
 }
 
 /** Builds the boot splash and arms the auto-advance timer to SCREEN_FM_VFO. */

@@ -24,7 +24,7 @@ Early bring-up on real hardware.
 <tr><td>Rotary encoder</td><td>GPIO quadrature</td><td><code>gpio-qdec</code></td><td>⭐[^2]</td><td>🟢</td><td>Volume/menu-value adjustment</td></tr>
 <tr><td>Volume knob</td><td>ADC1 ch0 (PA0)</td><td><code>st,stm32-adc</code></td><td>⭐</td><td>🟢</td><td>Hysteresis-gated reading, audio-taper display curve</td></tr>
 <tr><th colspan="6" align="left">Storage</th></tr>
-<tr><td>Codeplug flash</td><td>SPI1 (W25Q128)</td><td><code>jedec,spi-nor</code></td><td>⭐</td><td>🟢<br>🟡</td><td>Read/decode (<code>src/codeplug.c</code>), hardware-validated<br>Write — call chain wired end-to-end, flash write stubbed (<code>-ENOTSUP</code>) pending CPS protocol support</td></tr>
+<tr><td>Codeplug flash</td><td>SPI1 (W25Q128)</td><td><code>jedec,spi-nor</code></td><td>⭐</td><td>🟢<br>🟡</td><td>Read/decode (<code>src/model/codeplug.c</code>), hardware-validated<br>Write — call chain wired end-to-end, flash write stubbed (<code>-ENOTSUP</code>) pending CPS protocol support</td></tr>
 <tr><td>Voice-prompt flash</td><td>SPI2 (W25Q)</td><td><code>jedec,spi-nor</code></td><td>⭐</td><td>⚪</td><td></td></tr>
 <tr><th colspan="6" align="left">Power</th></tr>
 <tr><td>Battery voltage</td><td>ADC1 ch1 (PA1)</td><td><code>st,stm32-adc</code></td><td>⭐</td><td>🟢</td><td>OCV curve, status-bar %/V display</td></tr>
@@ -57,6 +57,16 @@ pio run -e mduv390plus
 
 The first run downloads the Zephyr framework package (~1 GB).
 
+## Architecture
+
+The firmware follows a model/view/controller split:
+
+- **model/** — device/settings state and thin 1:1 driver wrappers (`battery.c`, `codeplug.c`, `radio_settings.c`). No UI or business logic.
+- **view/** — LVGL widget creation and paint from values handed to it (`theme.c`, `status_bar.c`, `view/screens/`, `view/overlays/`). No direct hardware access.
+- **controller/** — orchestration between model and view (debounce, value tables, "what happens when X changes"). Not yet populated; that logic currently still lives in `app.c`, and `view/screens/screen_fm_vfo.c` and `view/status_bar.c` still call the AT1846S driver directly pending further refactor work.
+
+`app.c`/`app.h` (screen manager: nav, frame stack, event queue) and `app_input.c` (input bridge) sit above this split as the app shell. `main.c`, `display.c`, `shell_radio.c`, `usb_cdc.c`, and `watchdog.c` are platform/system level, outside the UI's MVC tree entirely.
+
 ## Flash
 
 Put the device into DFU mode **before** running the upload command: hold **PTT + SK1** while powering on.
@@ -72,7 +82,7 @@ pio run -e mduv390plus --target upload
 An LVGL UI runs over the shared keypad/LCD data bus, driven by Up/Down/Enter/Back (keypad matrix) and CW/CCW (rotary encoder):
 
 - **FM VFO** — the default screen; functional receive display.
-- **Settings** — a persistent `Radio` / `Display` / `Info` tabview (`src/ui/screens/screen_settings.c`), built once at boot and never destroyed. Squelch, bandwidth, VFO step, brightness, backlight-off level, screen timeout, screen invert, visual-volume, battery-unit, and all-LEDs toggles are live; items blocked on missing subsystems (GPS, RTC, contacts, DMR) show as N/A. Settings state is centralized in `src/radio_settings.c`, seeded from the codeplug's nv-settings block where a field mapping exists.
+- **Settings** — a persistent `Radio` / `Display` / `Info` tabview (`src/view/screens/screen_settings.c`), built once at boot and never destroyed. Squelch, bandwidth, VFO step, brightness, backlight-off level, screen timeout, screen invert, visual-volume, battery-unit, and all-LEDs toggles are live; items blocked on missing subsystems (GPS, RTC, contacts, DMR) show as N/A. Settings state is centralized in `src/model/radio_settings.c`, seeded from the codeplug's nv-settings block where a field mapping exists.
 - **Quick-menu overlay** — SK1 long-press.
 
 Two-axis navigation convention, used consistently across every tabview: Up/Down always move focus (tab cycling, then row selection within a tab); the encoder never moves focus and instead adjusts whatever's currently focused.
@@ -166,11 +176,11 @@ interrupted in a prior boot. `i2c_configure()` is never called afterwards:
 on STM32F4 I2C v1, the runtime reconfigure path leaves the event interrupt
 disabled — a known silicon/driver errata.
 
-### Volume pot hysteresis (`src/ui/ui_input.c`)
+### Volume pot hysteresis (`src/app_input.c`)
 
 Volume-pot handling operates on the pot's native calibrated ADC reading
 (`vol_axis_ch`'s `in-min`/`in-max` span) rather than a rescaled percent, so
-the taper LUT and the hardware volume (`src/ui/ui.c`) each round
+the taper LUT and the hardware volume (`src/app.c`) each round
 independently at their own point of use.
 
 The STM32F405's ADC has no hardware oversampler (`zephyr,oversampling`
@@ -198,24 +208,24 @@ system with an unhandled fault; the LVGL thread now checks for it and
 returns early, so a display-init failure only loses the UI — the radio
 keeps receiving independently (see `src/main.c`).
 
-### UI threading & frame lifecycle (`src/ui/ui.c`, `src/ui/ui.h`)
+### UI threading & frame lifecycle (`src/app.c`, `src/app.h`)
 
 All LVGL object access is confined to the LVGL thread (the one that calls
-`ui_tick()` and `lv_timer_handler()`). External contexts post `ui_action_t`
-events via `ui_post_action()`; `ui_tick()` drains them each iteration —
+`app_tick()` and `lv_timer_handler()`). External contexts post `ui_action_t`
+events via `app_post_action()`; `app_tick()` drains them each iteration —
 this is the only place actions cross from the outside world into LVGL.
 
-Frames (FM VFO, Settings) are created once at `ui_init()` and never
+Frames (FM VFO, Settings) are created once at `app_init()` and never
 destroyed — navigation hides the current frame and shows another, not
 create/destroy churn. `SCREEN_BOOT` is the one exception: a one-shot
-transient torn down by `ui_switch_screen()` the first time it's called.
+transient torn down by `app_switch_screen()` the first time it's called.
 
 The rotary encoder has no `lv_group` binding: it adjusts whatever's
 focused directly via `UI_ACTION_ENCODER_CW`/`CCW` rather than moving focus
 itself (see [User Interface](#user-interface) above for the full
 navigation convention).
 
-### Volume taper curve (`src/ui/ui.c`)
+### Volume taper curve (`src/app.c`)
 
 Hardware volume has no taper correction — the pot's own physical taper
 already applies one; the raw reading is linearly rescaled to the 0-100%
@@ -239,7 +249,7 @@ counts). The final interpolated value is rounded (`DIV_ROUND_CLOSEST`)
 rather than truncated, which used to bias every step down by up to just
 under one point.
 
-### Settings tabview navigation (`src/ui/screens/screen_settings.c`)
+### Settings tabview navigation (`src/view/screens/screen_settings.c`)
 
 The Settings screen's two-level hierarchy (tabs, then rows within a tab)
 requires explicit group-membership management: `lv_tabview_set_active()`
@@ -251,7 +261,7 @@ keeps the two levels from ever sharing group membership: tab buttons are
 group members only at the tab level, the active tab's rows only at the row
 level, swapped explicitly on descend/ascend.
 
-### Codeplug flash decoding (`src/codeplug.c`, `src/codeplug.h`)
+### Codeplug flash decoding (`src/model/codeplug.c`, `src/model/codeplug.h`)
 
 Structs are byte-exact overlays of the on-flash format (region offsets come
 from the board DT's codeplug-map), not a parsed/normalized representation —
@@ -271,7 +281,7 @@ implemented end-to-end except the actual flash write, which stays a logged
 `-ENOTSUP` no-op until CPS-side write support exists — this lets the whole
 path be exercised and confirmed on hardware ahead of that work.
 
-### Settings config manager (`src/radio_settings.c`, `src/radio_settings.h`)
+### Settings config manager (`src/model/radio_settings.c`, `src/model/radio_settings.h`)
 
 Radio/Display settings (squelch, bandwidth, VFO step, brightness,
 backlight-off, screen timeout, invert, visual-volume, battery-unit, LEDs)
@@ -290,7 +300,7 @@ the setters use, after a codeplug-sourced 4% brightness value (below the
 PWM's usable floor) once made the display unreadable on first boot with
 real codeplug data.
 
-### Battery reading (`src/battery.c`, `src/battery.h`)
+### Battery reading (`src/model/battery.c`, `src/model/battery.h`)
 
 Pack voltage is read via the native voltage-divider ADC DT binding
 (`adc_raw_to_millivolts_dt()` gives pin mV; the divider's `output-ohms`/

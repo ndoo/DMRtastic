@@ -7,8 +7,8 @@
 #include <zephyr/devicetree.h>
 #include <lvgl.h>
 
-#include "ui/theme.h"
-#include "ui/ui.h"
+#include "view/theme.h"
+#include "app.h"
 #include <drivers/input/kbd_matrix_shared_bus.h>
 
 LOG_MODULE_REGISTER(app_display, LOG_LEVEL_INF);
@@ -34,7 +34,7 @@ static void lvgl_thread(void *a, void *b, void *c)
 					       true, LV_FONT_DEFAULT);
 	lv_display_set_theme(disp, th);
 
-	ui_init();
+	app_init();
 
 	while (1) {
 		/* Shares GPIOs with the LCD bus — must stay on this thread. */
@@ -42,7 +42,7 @@ static void lvgl_thread(void *a, void *b, void *c)
 		if (krc != 0) {
 			LOG_ERR("keypad scan failed: %d", krc);
 		}
-		ui_tick();
+		app_tick();
 		lv_timer_handler();
 		k_msleep(50);
 	}

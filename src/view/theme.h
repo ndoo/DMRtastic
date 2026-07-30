@@ -26,7 +26,7 @@ typedef struct {
 	lv_color_t status_error;    /* TX indicator */
 } theme_colors_t;
 
-/** Populates the compiled-in default palette; call once before ui_init(). */
+/** Populates the compiled-in default palette; call once before app_init(). */
 void theme_init(void);
 
 const theme_colors_t *theme_colors(void);

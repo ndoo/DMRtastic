@@ -20,7 +20,7 @@
 #include <drivers/radio/radio_baseband.h>
 #include <drivers/radio/radio_transceiver.h>
 
-#include "codeplug.h"
+#include "model/codeplug.h"
 
 static const struct device *const uart_dev =
 	DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);

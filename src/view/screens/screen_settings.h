@@ -9,7 +9,7 @@
 #ifndef DMRTASTIC_UI_SCREEN_SETTINGS_H_
 #define DMRTASTIC_UI_SCREEN_SETTINGS_H_
 
-#include "../ui.h"
+#include "app.h"
 
 #include <lvgl.h>
 #include <stdbool.h>

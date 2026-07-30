@@ -3,9 +3,9 @@
 
 #include "status_bar.h"
 #include "theme.h"
-#include "ui.h"
-#include "battery.h"
-#include "radio_settings.h"
+#include "app.h"
+#include "model/battery.h"
+#include "model/radio_settings.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>

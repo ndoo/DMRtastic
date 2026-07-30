@@ -3,8 +3,8 @@
 
 #include "screen_fm_vfo.h"
 #include "../theme.h"
-#include "../ui.h"
-#include "../../radio_settings.h"
+#include "app.h"
+#include "model/radio_settings.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>

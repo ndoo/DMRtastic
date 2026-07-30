@@ -10,7 +10,7 @@
 #include <drivers/radio/radio_baseband.h>
 #include <drivers/radio/radio_transceiver.h>
 
-#include "battery.h"
+#include "model/battery.h"
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 

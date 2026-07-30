@@ -25,7 +25,7 @@ static void dismiss_cb(lv_timer_t *t)
 	lv_timer_pause(s_dismiss_timer);
 }
 
-/** Builds the hidden volume overlay panel; call once from ui_init(). */
+/** Builds the hidden volume overlay panel; call once from app_init(). */
 void overlay_volume_create(void)
 {
 	lv_obj_t *layer = lv_layer_top();
