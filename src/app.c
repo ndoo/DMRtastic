@@ -17,6 +17,7 @@
 
 #include "model/battery.h"
 #include "model/radio_settings.h"
+#include "model/radio_state.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -30,7 +31,6 @@
 #include <string.h>
 
 #include <drivers/display/hx8353e.h>
-#include <drivers/radio/radio_transceiver.h>
 
 LOG_MODULE_REGISTER(app_ui, LOG_LEVEL_INF);
 
@@ -233,9 +233,7 @@ static void on_settings_changed(enum settings_key key)
 	switch (key) {
 	case SETTINGS_KEY_SQUELCH: {
 		uint8_t level = settings_get_squelch_level();
-		const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-		const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-		int rc = api->set_squelch(trx, level);
+		int rc = radio_state_set_squelch(level);
 
 		if (rc < 0) {
 			LOG_WRN("set_squelch(%u) failed: %d", level, rc);
@@ -245,9 +243,7 @@ static void on_settings_changed(enum settings_key key)
 	}
 	case SETTINGS_KEY_BANDWIDTH: {
 		bool is_25k = settings_get_bandwidth_is_25k();
-		const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-		const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-		int rc = api->set_bandwidth(trx, is_25k ? RADIO_BW_25K : RADIO_BW_12K5);
+		int rc = radio_state_set_bandwidth(is_25k);
 
 		if (rc < 0) {
 			LOG_WRN("set_bandwidth failed: %d", rc);
@@ -536,9 +532,7 @@ static void radio_set_volume_pct(uint16_t raw)
 {
 	uint8_t pct = (uint8_t)DIV_ROUND_CLOSEST((uint32_t)(raw - VOL_AXIS_MIN) * 100,
 						  VOL_AXIS_SPAN);
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-	int rc = api->set_volume(trx, pct);
+	int rc = radio_state_set_volume(pct);
 
 	if (rc < 0) {
 		LOG_WRN("set_volume(%u) failed: %d", pct, rc);

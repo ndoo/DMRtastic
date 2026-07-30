@@ -5,15 +5,12 @@
 #include "../theme.h"
 #include "app.h"
 #include "model/radio_settings.h"
+#include "model/radio_state.h"
 
-#include <zephyr/device.h>
-#include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <lvgl.h>
 #include <stdio.h>
-
-#include <drivers/radio/radio_transceiver.h>
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
@@ -115,11 +112,8 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 {
 	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
 
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-
 	uint8_t signal = 0, noise = 0;
-	api->get_rssi(trx, &signal, &noise);
+	radio_state_get_rssi(&signal, &noise);
 
 	/* RSSI bar — update only on change */
 	if (signal != d->last_rssi) {
@@ -131,15 +125,14 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 		/* Within the debounce window -- keep the optimistic shadow value on screen. */
 		if (k_uptime_get() - d->last_step_uptime >= VFO_RETUNE_DEBOUNCE_MS) {
 			uint32_t target = d->last_freq_hz;
-			int rc = api->set_frequency(trx, target, false);
+			int rc = radio_state_set_frequency(target);
 
 			if (rc < 0) {
 				uint32_t hw_freq_hz;
 
 				LOG_WRN("set_frequency(%u) failed: %d", target, rc);
 				/* Roll the display back to whatever's actually tuned. */
-				if (api->get_frequency &&
-				    api->get_frequency(trx, &hw_freq_hz) == 0) {
+				if (radio_state_get_frequency(&hw_freq_hz) == 0) {
 					refresh_freq_label(d, hw_freq_hz);
 				}
 				d->retune_pending = false;
@@ -149,11 +142,11 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 			}
 			/* else: shadow moved again mid-write -- stay pending for the newer target. */
 		}
-	} else if (api->get_frequency) {
+	} else {
 		/* Frequency label — update only on change */
 		uint32_t freq_hz = 0;
 
-		if (api->get_frequency(trx, &freq_hz) == 0 && freq_hz != d->last_freq_hz) {
+		if (radio_state_get_frequency(&freq_hz) == 0 && freq_hz != d->last_freq_hz) {
 			refresh_freq_label(d, freq_hz);
 		}
 	}

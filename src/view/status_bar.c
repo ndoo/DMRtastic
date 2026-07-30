@@ -6,14 +6,11 @@
 #include "app.h"
 #include "model/battery.h"
 #include "model/radio_settings.h"
+#include "model/radio_state.h"
 
-#include <zephyr/device.h>
-#include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 #include <lvgl.h>
 #include <stdio.h>
-
-#include <drivers/radio/radio_transceiver.h>
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
@@ -21,20 +18,6 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 #define RSSI_BARS        4
 #define RSSI_BAR_W       3
 #define RSSI_BAR_GAP     2
-
-/*
- * Map signal byte (0–255, rises with carrier) to 0–RSSI_BARS.
- * Thresholds are approximate; tune after over-air testing.
- */
-/** Maps a signal byte (0-255) to a 0-4 RSSI bar count. */
-static uint8_t rssi_to_bars(uint8_t signal)
-{
-	if (signal >= 100) return 4;
-	if (signal >= 70)  return 3;
-	if (signal >= 45)  return 2;
-	if (signal >= 20)  return 1;
-	return 0;
-}
 
 static lv_obj_t *s_mode_label;
 static lv_obj_t *s_scan_label;
@@ -128,13 +111,7 @@ static void status_bar_update_battery(void)
 /** Polls RSSI and battery, redrawing each only if its rendered value changed. */
 void status_bar_update(void)
 {
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-
-	uint8_t signal = 0, noise = 0;
-	api->get_rssi(trx, &signal, &noise);
-
-	uint8_t bars = rssi_to_bars(signal);
+	uint8_t bars = radio_state_get_rssi_bars();
 
 	if (bars != s_last_bars) {
 		s_last_bars = bars;
