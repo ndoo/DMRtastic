@@ -192,7 +192,12 @@ static void build_info_tab(lv_obj_t *tab)
 }
 
 /** Adds/removes rows from the shared group; removal also clears FOCUSED/FOCUS_KEY state
- * since lv_group_remove_obj() leaves it set, which would render a stale highlight. */
+ * since lv_group_remove_obj() leaves it set, which would render a stale highlight, and
+ * explicitly un-inverts the row's text color -- lv_obj_remove_state() only reverts the
+ * state-driven background, not set_row_text_focused()'s imperative LV_PART_MAIN text
+ * color override, and lv_group_remove_obj() doesn't reliably fire LV_EVENT_DEFOCUSED to
+ * reset it the normal way, which otherwise leaves whichever row had focus rendering its
+ * text in the focus-background color -- invisible against the row's now-plain background. */
 static void set_rows_in_group(lv_obj_t **rows, uint8_t count, bool add)
 {
 	for (uint8_t i = 0; i < count; i++) {
@@ -201,6 +206,7 @@ static void set_rows_in_group(lv_obj_t **rows, uint8_t count, bool add)
 		} else {
 			lv_group_remove_obj(rows[i]);
 			lv_obj_remove_state(rows[i], LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY);
+			set_row_text_focused(rows[i], false);
 		}
 	}
 }

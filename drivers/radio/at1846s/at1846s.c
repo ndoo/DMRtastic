@@ -40,6 +40,12 @@ LOG_MODULE_REGISTER(at1846s, CONFIG_RADIO_AT1846S_LOG_LEVEL);
 /* Software squelch hysteresis: close threshold = open threshold + 3 units. */
 #define AT1846S_SQ_HYSTERESIS 3U
 
+/* Consecutive squelch-poll cycles a matched CTCSS/DCS tone is allowed to go undetected
+ * before the squelch thread re-mutes on tone loss, once already open -- avoids audio
+ * chattering on a single marginal detector reading mid-transmission. Opening still
+ * requires an immediate match; this only debounces losing it. */
+#define AT1846S_CSS_HOLD_POLLS 4U
+
 struct at1846s_config {
 	struct i2c_dt_spec i2c;
 
@@ -90,6 +96,12 @@ struct at1846s_data {
 	bool         sq_open;      /* current squelch state */
 	bool         rx_active;    /* true while in FM/DMR RX */
 	struct k_sem sq_wake;      /* enter_fm_rx gives this to kick the thread */
+
+	/* RX CTCSS/DCS tone-gating (set by set_rx_ctcss/set_rx_dcs, consumed by the
+	 * squelch thread -- carrier squelch alone never accounts for tone match). */
+	bool                rx_css_active;  /* an RX tone/code is currently armed */
+	enum radio_css_type rx_css_type;    /* which check_css() type to test */
+	uint8_t             css_miss_count; /* consecutive polls since the tone was last seen */
 };
 
 /* ---- Low-level I2C helpers -------------------------------------------- */
@@ -270,6 +282,44 @@ static int at1846s_apply_band_gpios(const struct at1846s_config *cfg,
 	return 0;
 }
 
+/* ---- CSS detection-select re-arm (mode/bandwidth tables clobber it) --- */
+
+/* set_rx_ctcss()/set_rx_dcs() select the tone-detect source with a *masked* modify of
+ * REG_VOICE_SEL (0x3A, mask 0xFFE0). But at1846s_mode_fm_regs[]/at1846s_mode_dmr_regs[]/
+ * the bandwidth tables all write 0x3A *wholesale* (no mask, e.g. `{ 0x3A, 0x00, 0xC3 }`),
+ * silently discarding that selection. This driver applies RX CSS from a separate
+ * settings-change callback (Milestone 2), decoupled from mode/bandwidth changes, so
+ * nothing guarantees the CSS-select write lands after a mode/bandwidth change -- re-apply
+ * the selection explicitly after both instead. */
+static int at1846s_reapply_rx_css_select(const struct device *dev)
+{
+	struct at1846s_data *data = dev->data;
+	uint16_t value_set;
+	int rc;
+
+	if (!data->rx_css_active) {
+		return 0;
+	}
+
+	switch (data->rx_css_type) {
+	case RADIO_CSS_DCS_NORM:
+		value_set = 0x0002;
+		break;
+	case RADIO_CSS_DCS_INV:
+		value_set = 0x0004;
+		break;
+	case RADIO_CSS_CTCSS:
+	default:
+		value_set = 0x0008;
+		break;
+	}
+
+	k_mutex_lock(&data->i2c_lock, K_FOREVER);
+	rc = at1846s_modify_reg_locked(dev, AT1846S_REG_VOICE_SEL, 0xFFE0, value_set);
+	k_mutex_unlock(&data->i2c_lock);
+	return rc;
+}
+
 /* ---- API: set_frequency ---------------------------------------------- */
 
 /** Select band GPIOs and program the RX/TX frequency, holding RX off across the change. */
@@ -363,7 +413,11 @@ static int at1846s_api_set_mode(const struct device *dev,
 		table = at1846s_mode_dmr_regs;
 		count = ARRAY_SIZE(at1846s_mode_dmr_regs);
 	}
-	return at1846s_write_table(dev, table, count);
+	int rc = at1846s_write_table(dev, table, count);
+	if (rc < 0) {
+		return rc;
+	}
+	return at1846s_reapply_rx_css_select(dev);
 }
 
 /** Apply the bandwidth register table, then toggle RX off/on to latch it. */
@@ -399,7 +453,10 @@ static int at1846s_api_set_bandwidth(const struct device *dev,
 					      ctrl_hi, AT1846S_CTRL_LO_RX_ON);
 	}
 	k_mutex_unlock(&data->i2c_lock);
-	return rc;
+	if (rc < 0) {
+		return rc;
+	}
+	return at1846s_reapply_rx_css_select(dev);
 }
 
 /* ---- API: get_rssi ---------------------------------------------------- */
@@ -453,10 +510,21 @@ static int at1846s_api_set_squelch(const struct device *dev, uint8_t level)
 	struct at1846s_data *data = dev->data;
 
 	if (!cfg->squelch_hardware) {
-		/* Store threshold; chip stays in monitor mode (SQ_THRESH = 0/0)
-		 * so it never gates audio — the squelch thread controls muting. */
+		/* Store the threshold for the polling squelch thread's own RSSI-based
+		 * decision; leave SQ_THRESH itself untouched. The user's squelch level
+		 * doesn't need to drive SQ_THRESH at all -- set_frequency() here already
+		 * writes a single fixed threshold pair (0x0C/0x15) on every retune, and
+		 * nothing else needs to touch it, since the actual mute decision is
+		 * entirely RSSI-based, not sq_cmp-based. A previous version of this
+		 * function explicitly zeroed the register afterwards under the assumption
+		 * that "monitor mode" was needed to stop the chip gating audio on its own,
+		 * but this driver's software squelch already controls muting independently
+		 * via the speaker GPIOs (see at1846s_squelch_thread_fn()) -- SQ_THRESH
+		 * being armed doesn't unmute anything by itself. Zeroing it instead broke
+		 * RX CTCSS/DCS: the tone decoder's flag bits never assert without a
+		 * genuinely armed threshold. */
 		data->sq_threshold = level;
-		return at1846s_write_reg(dev, AT1846S_REG_SQ_THRESH, 0x00, 0x00);
+		return 0;
 	}
 
 	uint8_t open_th = level;
@@ -597,11 +665,22 @@ static int at1846s_api_set_rx_ctcss(const struct device *dev, uint16_t tone_dHz)
 						       0xF9FF, 0x0000);
 		}
 		k_mutex_unlock(&data->i2c_lock);
+		if (rc == 0) {
+			data->rx_css_active = false;
+			data->css_miss_count = 0;
+		}
 		return rc;
 	}
 
-	threshold = (25000 - tone_dHz) / 1000;
-	if (tone_dHz > 24000) {
+	/* Same *10 scaling as the TX path -- see comment there. The detect threshold is
+	 * derived from this already-scaled register value (Hz*100), not the raw tenths-Hz
+	 * tone_dHz. Using tone_dHz directly here (as a prior fix pass assumed was safe)
+	 * programs a threshold roughly 10x too loose/tight, which let the wrong squelch
+	 * decision through regardless of actual tone match. */
+	uint16_t reg_word = (uint16_t)(tone_dHz * 10);
+
+	threshold = (25000 - reg_word) / 1000;
+	if (reg_word > 24000) {
 		threshold = 1;
 	}
 
@@ -614,9 +693,6 @@ static int at1846s_api_set_rx_ctcss(const struct device *dev, uint16_t tone_dHz)
 		rc = at1846s_write_reg_locked(dev, AT1846S_REG_DCS_LO, 0, 0);
 	}
 	if (rc == 0) {
-		/* Same *10 scaling as the TX path -- see comment there. */
-		uint16_t reg_word = (uint16_t)(tone_dHz * 10);
-
 		rc = at1846s_write_reg_locked(dev, AT1846S_REG_CTCSS2,
 					      (reg_word >> 8) & 0xFF,
 					      reg_word & 0xFF);
@@ -631,6 +707,11 @@ static int at1846s_api_set_rx_ctcss(const struct device *dev, uint16_t tone_dHz)
 					       0xFFE0, 0x0008);
 	}
 	k_mutex_unlock(&data->i2c_lock);
+	if (rc == 0) {
+		data->rx_css_active = true;
+		data->rx_css_type = RADIO_CSS_CTCSS;
+		data->css_miss_count = 0;
+	}
 	return rc;
 }
 
@@ -653,7 +734,41 @@ static int at1846s_api_set_rx_dcs(const struct device *dev,
 	return -ENOTSUP;
 }
 
-/** Read the CSS detect flags register and report whether the given CTCSS/DCS type matched. */
+/** Read the CSS detect flags register and report whether the given CTCSS/DCS type matched.
+ *
+ * A prior investigation pass found that datasheet-position `hi & 0x01` (bit9/ctcss2_cmp
+ * per the programming guide's sec. 17 "Flag" bit map) never asserted on real hardware
+ * even against a genuinely matching tone, and that `lo & 0x01` (sq_cmp) tracked
+ * *something* correlated with carrier presence -- but a same-carrier mismatched-tone
+ * control proved that bit isn't tone-specific at all: squelch opened identically at
+ * 103.5 Hz (matching), 100.0 Hz, and 67.0 Hz (both should have been rejected). Tracing
+ * this driver's own register-write order against the datasheet's bit-flag semantics,
+ * rather than more bit-polling, found three compounding root causes:
+ *
+ * 1. Correct tone-match detection requires *both* `FlagsL & 0x01` (sq_cmp) *and*, for
+ *    CTCSS, `FlagsH & 0x01` (ctcss2_cmp) -- an AND of carrier-hardware-compare and
+ *    tone-match-compare, not either bit alone. This driver's `lo & 0x01`-only check was
+ *    reading sq_cmp (real, but tone-independent) while never consulting ctcss2_cmp at
+ *    all -- consistent with "opens on any carrier, regardless of tone."
+ * 2. ctcss2_cmp's datasheet position (`hi & 0x01`) never asserting was itself a real
+ *    symptom, not a wrong-bit guess: `at1846s_api_set_mode()`/`_set_bandwidth()` write
+ *    REG_VOICE_SEL (0x3A) *wholesale* as part of their mode/bandwidth tables, silently
+ *    discarding the masked CTCSS2-select bits `set_rx_ctcss()` wrote there earlier. RX
+ *    CSS is applied from a separate, later settings-change callback here, so nothing
+ *    enforced select-after-mode/bandwidth ordering -- fixed by
+ *    `at1846s_reapply_rx_css_select()`, called at the end of both functions.
+ * 3. sq_cmp itself was structurally near-guaranteed clear: `set_squelch()`'s software
+ *    branch used to zero SQ_THRESH (0x49) to force "monitor mode", when the register
+ *    only ever needs a fixed real threshold (0x0C/0x15) regardless of squelch level,
+ *    since the actual mute decision is entirely RSSI-based, not sq_cmp-based -- fixed
+ *    by leaving SQ_THRESH alone in `set_squelch()` (see that function's comment).
+ *
+ * With SQ_THRESH genuinely armed and the CTCSS2 select bits no longer getting clobbered,
+ * both bits this function reads now match their datasheet positions -- no swap needed.
+ * DCS bits stay unverified on hardware (set_tx_dcs/set_rx_dcs are still -ENOTSUP stubs,
+ * so the DCS branch below is unreachable) but are written per the datasheet's DCS
+ * behavior: cdcss1_cmp/cdcss2_cmp live in the *low* byte alongside sq_cmp (bits 7/6),
+ * not the high byte, and DCS detection never consults the high byte at all. */
 static int at1846s_api_check_css(const struct device *dev, uint16_t tone,
 				 enum radio_css_type type, bool *detected)
 {
@@ -666,12 +781,19 @@ static int at1846s_api_check_css(const struct device *dev, uint16_t tone,
 	if (rc < 0) {
 		return rc;
 	}
-	uint8_t flag_lo = 0x01;
-	if (type == RADIO_CSS_DCS_NORM) flag_lo |= 0x80;
-	if (type == RADIO_CSS_DCS_INV)  flag_lo |= 0x40;
 
-	bool ctcss_ok = (type != RADIO_CSS_CTCSS) || ((hi & 0x01) != 0);
-	*detected = ((lo & flag_lo) == flag_lo) && ctcss_ok;
+	switch (type) {
+	case RADIO_CSS_DCS_NORM:
+		*detected = (lo & 0x81) == 0x81; /* sq_cmp + cdcss1_cmp */
+		break;
+	case RADIO_CSS_DCS_INV:
+		*detected = (lo & 0x41) == 0x41; /* sq_cmp + cdcss2_cmp */
+		break;
+	case RADIO_CSS_CTCSS:
+	default:
+		*detected = ((lo & 0x01) != 0) && ((hi & 0x01) != 0); /* sq_cmp + ctcss2_cmp */
+		break;
+	}
 	return 0;
 }
 
@@ -718,6 +840,7 @@ static int at1846s_api_enter_fm_rx(const struct device *dev)
 		/* Software squelch: start muted; thread unmutes on signal. */
 		at1846s_set_speaker(cfg, false);
 		data->sq_open = false;
+		data->css_miss_count = 0;
 		data->rx_active = true;
 	}
 
@@ -791,14 +914,44 @@ static void at1846s_squelch_thread_fn(void *p1, void *p2, void *p3)
 			uint8_t noise;
 
 			if (at1846s_api_get_rssi(dev, NULL, &noise) == 0) {
-				bool new_open;
+				bool carrier_open;
 
 				if (data->sq_open) {
-					new_open = noise < (uint8_t)(
+					carrier_open = noise < (uint8_t)(
 						data->sq_threshold +
 						AT1846S_SQ_HYSTERESIS);
 				} else {
-					new_open = noise < data->sq_threshold;
+					carrier_open = noise < data->sq_threshold;
+				}
+
+				bool new_open;
+
+				if (!carrier_open) {
+					new_open = false;
+					data->css_miss_count = 0;
+				} else if (!data->rx_css_active) {
+					new_open = true;
+				} else {
+					bool css_detected = false;
+
+					(void)at1846s_api_check_css(
+						dev, 0, data->rx_css_type,
+						&css_detected);
+
+					if (css_detected) {
+						data->css_miss_count = 0;
+						new_open = true;
+					} else if (data->sq_open &&
+						   data->css_miss_count <
+							   AT1846S_CSS_HOLD_POLLS) {
+						/* Already open: ride out a brief
+						 * tone-detect miss rather than
+						 * chopping audio mid-call. */
+						data->css_miss_count++;
+						new_open = true;
+					} else {
+						new_open = false;
+					}
 				}
 
 				if (new_open != data->sq_open) {

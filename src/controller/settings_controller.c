@@ -33,8 +33,7 @@ static char          s_squelch_val_buf[8] = "55";
 static const uint8_t squelch_presets[] = { 30, 45, 55, 70, 85 };
 static uint8_t        s_squelch_idx = 2; /* index of 55, matches radio_settings' default */
 
-/** Cycles the squelch preset table. */
-static void squelch_cycle(int8_t dir)
+void settings_controller_cycle_squelch(int8_t dir)
 {
 	s_squelch_idx = (uint8_t)(((int)s_squelch_idx + dir + ARRAY_SIZE(squelch_presets)) %
 				  ARRAY_SIZE(squelch_presets));
@@ -43,8 +42,7 @@ static void squelch_cycle(int8_t dir)
 
 static char s_bw_val_buf[8] = "25K";
 
-/** Toggles 25K/12.5K bandwidth; dir is ignored (2-state toggle). */
-static void bandwidth_cycle(int8_t dir)
+void settings_controller_cycle_bandwidth(int8_t dir)
 {
 	ARG_UNUSED(dir);
 	settings_set_bandwidth_is_25k(!settings_get_bandwidth_is_25k());
@@ -66,12 +64,12 @@ static const uint16_t css_ctcss_tenths_hz[] = {
 
 static uint8_t s_css_idx; /* 0 = Off, matches radio_settings' default */
 /* Sized for the full uint16_t tenths-Hz range ("6553.5Hz" + NUL), not just this table's
- * actual max (254.1Hz) -- css.value's static type is wider than what css_cycle() ever
- * produces, and the compiler warns on the type's range, not the reachable one. */
+ * actual max (254.1Hz) -- css.value's static type is wider than what
+ * settings_controller_cycle_css() ever produces, and the compiler warns on the type's
+ * range, not the reachable one. */
 static char    s_css_val_buf[10] = "Off";
 
-/** Cycles Off -> the 50 CTCSS tones (ascending) -> Off. */
-static void css_cycle(int8_t dir)
+void settings_controller_cycle_css(int8_t dir)
 {
 	s_css_idx = (uint8_t)(((int)s_css_idx + dir + CSS_CYCLE_COUNT) % CSS_CYCLE_COUNT);
 
@@ -273,8 +271,22 @@ static void on_settings_changed(enum settings_key key)
 	}
 	case SETTINGS_KEY_CSS: {
 		struct cp_css css = settings_get_css();
-		int rc1 = radio_state_set_rx_css(&css);
+		/* TX first, RX second -- deliberate order, not arbitrary. TX and RX CTCSS
+		 * share the same physical registers on the AT1846S (CTCSS1 for TX tone,
+		 * CTCSS2 for RX tone/detect -- see at1846s_api_set_tx_ctcss()/
+		 * _set_rx_ctcss()), and each one's "on" path explicitly zeroes the
+		 * other's register as part of isolating its own. There's no PTT-time
+		 * apply/restore sequence yet (TX isn't wired to a PTT path -- Milestone 6
+		 * territory), so this single settings-change callback has to apply both
+		 * back to back itself. Applying RX last ensures CTCSS2 (RX detect) is the
+		 * one left standing, since RX is what's actually in effect while not
+		 * transmitting; applying TX first and letting RX overwrite whatever TX
+		 * just zeroed is harmless today. Getting this backwards silently disables
+		 * RX tone detection: CTCSS2 would read as configured immediately after
+		 * set_rx_css() but then get zeroed a moment later by set_tx_css()'s own
+		 * cleanup step. */
 		int rc2 = radio_state_set_tx_css(&css);
+		int rc1 = radio_state_set_rx_css(&css);
 
 		if (rc1 < 0 || rc2 < 0) {
 			LOG_WRN("set_css failed: rx=%d tx=%d", rc1, rc2);
@@ -356,11 +368,11 @@ static void on_settings_changed(enum settings_key key)
 }
 
 static const menu_item_t radio_items[] = {
-	{ "Squelch",   squelch_cycle,   s_squelch_val_buf },
-	{ "Volume",    stub_item,       "7 %"             },
-	{ "Bandwidth", bandwidth_cycle, s_bw_val_buf       },
-	{ "Step",      step_cycle,      s_step_val_buf     },
-	{ "CTCSS/DCS", css_cycle,       s_css_val_buf      },
+	{ "Squelch",   settings_controller_cycle_squelch,   s_squelch_val_buf },
+	{ "Volume",    stub_item,                           "7 %"             },
+	{ "Bandwidth", settings_controller_cycle_bandwidth, s_bw_val_buf       },
+	{ "Step",      step_cycle,                          s_step_val_buf     },
+	{ "CTCSS/DCS", settings_controller_cycle_css,       s_css_val_buf      },
 };
 
 static const menu_item_t display_items[] = {

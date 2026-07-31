@@ -4,6 +4,7 @@
 #include "overlay_quickmenu.h"
 #include "../theme.h"
 #include "controller/fm_vfo_controller.h"
+#include "controller/settings_controller.h"
 
 #include <lvgl.h>
 #include <string.h>
@@ -47,7 +48,9 @@ static void set_row_text_focused(lv_obj_t *row, bool focused)
 	}
 }
 
-/** Row event callback: FOCUSED resets the auto-dismiss timer; CLICKED logs and closes the menu. */
+/** Row event callback: FOCUSED resets the auto-dismiss timer; CLICKED cycles/toggles the
+ * corresponding radio setting (Bandwidth/Squelch/CTCSS-DCS, one step per click, same as
+ * a single Settings-tab row click) or flips the active VFO, then closes the menu. */
 static void row_cb(lv_event_t *e)
 {
 	lv_event_code_t code = lv_event_get_code(e);
@@ -69,6 +72,12 @@ static void row_cb(lv_event_t *e)
 		int cur = fm_vfo_controller_get_current_vfo();
 
 		fm_vfo_controller_set_current_vfo(cur == 0 ? 1 : 0);
+	} else if (strcmp(label, "Bandwidth") == 0) {
+		settings_controller_cycle_bandwidth(1);
+	} else if (strcmp(label, "Squelch") == 0) {
+		settings_controller_cycle_squelch(1);
+	} else if (strcmp(label, "CTCSS/DCS") == 0) {
+		settings_controller_cycle_css(1);
 	} else {
 		LOG_INF("quick menu: %s not yet implemented", label);
 	}

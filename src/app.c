@@ -458,6 +458,13 @@ void app_push_screen(screen_id_t id)
 	s_frame_top++;
 	s_frame_stack[s_frame_top] = id;
 	lv_obj_remove_flag(s_frame_obj[id], LV_OBJ_FLAG_HIDDEN);
+	/* Force a first paint now rather than waiting up to one 200 ms update_timer_cb
+	 * tick -- a frame hidden behind another (e.g. Settings behind the quick menu)
+	 * never gets frame_ops[].update() called while hidden, so without this its
+	 * widgets can still show whatever was true when it was last topmost. */
+	if (frame_ops[id].update) {
+		frame_ops[id].update(s_frame_obj[id]);
+	}
 
 	LOG_DBG("push frame %d (depth %d)", id, s_frame_top + 1);
 }
@@ -471,9 +478,14 @@ void app_pop_screen(void)
 
 	lv_obj_add_flag(s_frame_obj[s_frame_stack[s_frame_top]], LV_OBJ_FLAG_HIDDEN);
 	s_frame_top--;
-	lv_obj_remove_flag(s_frame_obj[s_frame_stack[s_frame_top]], LV_OBJ_FLAG_HIDDEN);
+	screen_id_t id = s_frame_stack[s_frame_top];
 
-	LOG_DBG("pop to frame %d (depth %d)", s_frame_stack[s_frame_top], s_frame_top + 1);
+	lv_obj_remove_flag(s_frame_obj[id], LV_OBJ_FLAG_HIDDEN);
+	if (frame_ops[id].update) {
+		frame_ops[id].update(s_frame_obj[id]);
+	}
+
+	LOG_DBG("pop to frame %d (depth %d)", id, s_frame_top + 1);
 }
 
 /** One-time boot transition: destroys the boot splash and shows id as the base frame. */

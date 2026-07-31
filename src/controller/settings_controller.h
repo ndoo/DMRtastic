@@ -23,4 +23,17 @@ void settings_controller_init(void);
  * radio_items[]/display_items[] tables. */
 lv_obj_t *settings_controller_create_screen(lv_obj_t *parent);
 
+/** Cycles the squelch preset table by dir (+1/-1). Shared by the Settings Radio tab's
+ * "Squelch" row and the quick menu's "Squelch" row -- both surfaces drive the same
+ * preset index, so they can never disagree on the current value. */
+void settings_controller_cycle_squelch(int8_t dir);
+
+/** Toggles 25K/12.5K bandwidth; dir is ignored (2-state toggle). Shared by the Settings
+ * Radio tab's "Bandwidth" row and the quick menu's "Bandwidth" row. */
+void settings_controller_cycle_bandwidth(int8_t dir);
+
+/** Cycles Off -> the 50 CTCSS tones -> Off. Shared by the Settings Radio tab's
+ * "CTCSS/DCS" row and the quick menu's "CTCSS/DCS" row. */
+void settings_controller_cycle_css(int8_t dir);
+
 #endif /* DMRTASTIC_SETTINGS_CONTROLLER_H_ */
