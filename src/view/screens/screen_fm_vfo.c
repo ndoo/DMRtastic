@@ -4,19 +4,11 @@
 #include "screen_fm_vfo.h"
 #include "../theme.h"
 #include "app.h"
-#include "model/radio_settings.h"
-#include "model/radio_state.h"
+#include "controller/fm_vfo_controller.h"
 
 #include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
 #include <lvgl.h>
 #include <stdio.h>
-
-LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
-
-/* Debounce before programming the AT1846S: coalesces a burst of Up/Down
- * clicks into one retune instead of blocking I2C per detent. */
-#define VFO_RETUNE_DEBOUNCE_MS 100
 
 /* Stored via lv_obj_set_user_data so widget pointers are scoped to screen lifetime. */
 typedef struct {
@@ -24,10 +16,8 @@ typedef struct {
 	lv_obj_t *rssi_bar;
 	lv_obj_t *bw_label;
 	lv_obj_t *sq_open_label;
-	uint32_t  last_freq_hz;     /* value currently shown (== intended retune target) */
-	uint8_t   last_rssi;
-	bool      retune_pending;   /* last_freq_hz not yet programmed into hardware */
-	int64_t   last_step_uptime; /* k_uptime_get() at the most recent Up/Down step */
+	uint32_t  shown_freq_hz; /* value currently painted, for change-detection only */
+	uint8_t   shown_rssi;
 } fm_vfo_data_t;
 
 static void fmt_freq(char *buf, size_t len, uint32_t hz)
@@ -38,17 +28,7 @@ static void fmt_freq(char *buf, size_t len, uint32_t hz)
 	snprintf(buf, len, "%3" PRIu32 ".%05" PRIu32 " MHz", mhz, frac);
 }
 
-/** Updates both the shown frequency label and d->last_freq_hz. */
-static void refresh_freq_label(fm_vfo_data_t *d, uint32_t hz)
-{
-	char buf[24];
-
-	d->last_freq_hz = hz;
-	fmt_freq(buf, sizeof(buf), hz);
-	lv_label_set_text(d->freq_label, buf);
-}
-
-/** Builds the FM VFO screen's widgets and populates the initial frequency from the driver. */
+/** Builds the FM VFO screen's widgets and populates the initial frequency from the controller. */
 lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 {
 	lv_obj_t *scr = lv_obj_create(parent);
@@ -59,10 +39,8 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 
 	fm_vfo_data_t *d = lv_malloc(sizeof(*d));
 	__ASSERT_NO_MSG(d != NULL);
-	d->last_freq_hz     = 0;
-	d->last_rssi        = 0xFF;
-	d->retune_pending   = false;
-	d->last_step_uptime = 0;
+	d->shown_freq_hz = 0;
+	d->shown_rssi    = 0xFF;
 	lv_obj_set_user_data(scr, d);
 
 	/* Frequency display — large, top-centre */
@@ -94,7 +72,7 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 				    theme_colors()->surface_alt, LV_PART_MAIN);
 	lv_obj_align(d->sq_open_label, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 
-	/* Populate frequency from driver */
+	/* Populate frequency from the controller */
 	screen_fm_vfo_update(scr);
 
 	return scr;
@@ -107,52 +85,31 @@ void screen_fm_vfo_destroy(lv_obj_t *screen)
 	lv_obj_delete(screen);
 }
 
-/** Polls RSSI and drives the debounced retune state machine for a pending frequency change. */
+/** Drives the controller tick, then paints whatever it reports; widgets only touched on change. */
 void screen_fm_vfo_update(lv_obj_t *screen)
 {
 	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
 
-	uint8_t signal = 0, noise = 0;
-	radio_state_get_rssi(&signal, &noise);
+	fm_vfo_controller_tick();
 
-	/* RSSI bar — update only on change */
-	if (signal != d->last_rssi) {
-		d->last_rssi = signal;
-		lv_bar_set_value(d->rssi_bar, signal, LV_ANIM_OFF);
+	uint8_t rssi = fm_vfo_controller_get_rssi();
+
+	if (rssi != d->shown_rssi) {
+		d->shown_rssi = rssi;
+		lv_bar_set_value(d->rssi_bar, rssi, LV_ANIM_OFF);
 	}
 
-	if (d->retune_pending) {
-		/* Within the debounce window -- keep the optimistic shadow value on screen. */
-		if (k_uptime_get() - d->last_step_uptime >= VFO_RETUNE_DEBOUNCE_MS) {
-			uint32_t target = d->last_freq_hz;
-			int rc = radio_state_set_frequency(target);
+	uint32_t freq_hz = fm_vfo_controller_get_frequency_hz();
 
-			if (rc < 0) {
-				uint32_t hw_freq_hz;
+	if (freq_hz != d->shown_freq_hz) {
+		char buf[24];
 
-				LOG_WRN("set_frequency(%u) failed: %d", target, rc);
-				/* Roll the display back to whatever's actually tuned. */
-				if (radio_state_get_frequency(&hw_freq_hz) == 0) {
-					refresh_freq_label(d, hw_freq_hz);
-				}
-				d->retune_pending = false;
-			} else if (d->last_freq_hz == target) {
-				/* Shadow hasn't moved since target was captured -- now in sync. */
-				d->retune_pending = false;
-			}
-			/* else: shadow moved again mid-write -- stay pending for the newer target. */
-		}
-	} else {
-		/* Frequency label — update only on change */
-		uint32_t freq_hz = 0;
-
-		if (radio_state_get_frequency(&freq_hz) == 0 && freq_hz != d->last_freq_hz) {
-			refresh_freq_label(d, freq_hz);
-		}
+		d->shown_freq_hz = freq_hz;
+		fmt_freq(buf, sizeof(buf), freq_hz);
+		lv_label_set_text(d->freq_label, buf);
 	}
 
-	/* Squelch state derived from noise byte, against whatever the menu set */
-	bool sq_open = (noise < settings_get_squelch_level());
+	bool sq_open = fm_vfo_controller_get_squelch_open();
 
 	lv_label_set_text(d->sq_open_label,
 			  sq_open ? "[ OPEN ]" : "[ SQUELCH ]");
@@ -162,17 +119,9 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 				    LV_PART_MAIN);
 }
 
-/** Steps the shown frequency and arms the debounced retune; see screen_fm_vfo_update(). */
+/** Forwards a step to the controller; see fm_vfo_controller_step(). */
 void screen_fm_vfo_step(lv_obj_t *screen, bool up)
 {
-	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
-	uint32_t step = settings_get_vfo_step_hz();
-	uint32_t new_freq = up ? d->last_freq_hz + step
-			       : (d->last_freq_hz > step ? d->last_freq_hz - step
-							  : d->last_freq_hz);
-
-	/* No I2C here -- just update the shown value and arm the debounced retune. */
-	refresh_freq_label(d, new_freq);
-	d->retune_pending   = true;
-	d->last_step_uptime = k_uptime_get();
+	(void)screen; /* controller state is a static singleton -- only one VFO screen exists */
+	fm_vfo_controller_step(up);
 }
