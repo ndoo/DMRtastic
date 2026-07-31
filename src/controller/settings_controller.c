@@ -50,6 +50,40 @@ static void bandwidth_cycle(int8_t dir)
 	settings_set_bandwidth_is_25k(!settings_get_bandwidth_is_25k());
 }
 
+/* Standard 50-tone CTCSS set (tenths of Hz). DCS isn't offered here -- the AT1846S
+ * driver's set_tx_dcs/set_rx_dcs are still -ENOTSUP stubs (see radio_state.c), so
+ * cycling to a DCS code would silently do nothing; add it to this table once driver
+ * support lands. */
+static const uint16_t css_ctcss_tenths_hz[] = {
+	670,  693,  719,  744,  770,  797,  825,  854,  885,  915,
+	948,  974, 1000, 1035, 1072, 1109, 1148, 1188, 1230, 1273,
+	1318, 1365, 1413, 1462, 1514, 1567, 1598, 1622, 1655, 1679,
+	1713, 1738, 1773, 1799, 1835, 1862, 1899, 1928, 1966, 1995,
+	2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541,
+};
+
+#define CSS_CYCLE_COUNT (ARRAY_SIZE(css_ctcss_tenths_hz) + 1) /* +1 for "Off" at index 0 */
+
+static uint8_t s_css_idx; /* 0 = Off, matches radio_settings' default */
+/* Sized for the full uint16_t tenths-Hz range ("6553.5Hz" + NUL), not just this table's
+ * actual max (254.1Hz) -- css.value's static type is wider than what css_cycle() ever
+ * produces, and the compiler warns on the type's range, not the reachable one. */
+static char    s_css_val_buf[10] = "Off";
+
+/** Cycles Off -> the 50 CTCSS tones (ascending) -> Off. */
+static void css_cycle(int8_t dir)
+{
+	s_css_idx = (uint8_t)(((int)s_css_idx + dir + CSS_CYCLE_COUNT) % CSS_CYCLE_COUNT);
+
+	struct cp_css css = { .type = CP_CSS_NONE, .value = 0, .inverted = false };
+
+	if (s_css_idx > 0) {
+		css.type  = CP_CSS_CTCSS;
+		css.value = css_ctcss_tenths_hz[s_css_idx - 1];
+	}
+	settings_set_css(css);
+}
+
 /* VFO Up/Down step size, cycled from the RADIO settings menu. */
 static const uint32_t    step_presets_hz[]    = { 2500, 5000, 6250, 12500, 25000 };
 static const char *const step_preset_labels[] = { "2.5k", "5k", "6.25k", "12.5k", "25k" };
@@ -237,6 +271,22 @@ static void on_settings_changed(enum settings_key key)
 		snprintf(s_bw_val_buf, sizeof(s_bw_val_buf), "%s", is_25k ? "25K" : "12.5K");
 		break;
 	}
+	case SETTINGS_KEY_CSS: {
+		struct cp_css css = settings_get_css();
+		int rc1 = radio_state_set_rx_css(&css);
+		int rc2 = radio_state_set_tx_css(&css);
+
+		if (rc1 < 0 || rc2 < 0) {
+			LOG_WRN("set_css failed: rx=%d tx=%d", rc1, rc2);
+		}
+		if (css.type == CP_CSS_CTCSS) {
+			snprintf(s_css_val_buf, sizeof(s_css_val_buf), "%u.%uHz",
+				 css.value / 10, css.value % 10);
+		} else {
+			snprintf(s_css_val_buf, sizeof(s_css_val_buf), "Off");
+		}
+		break;
+	}
 	case SETTINGS_KEY_VFO_STEP:
 		/* s_step_idx already matches (only step_cycle() changes this key). */
 		snprintf(s_step_val_buf, sizeof(s_step_val_buf), "%s", step_preset_labels[s_step_idx]);
@@ -310,7 +360,7 @@ static const menu_item_t radio_items[] = {
 	{ "Volume",    stub_item,       "7 %"             },
 	{ "Bandwidth", bandwidth_cycle, s_bw_val_buf       },
 	{ "Step",      step_cycle,      s_step_val_buf     },
-	{ "CTCSS/DCS", stub_item,       "Off"              },
+	{ "CTCSS/DCS", css_cycle,       s_css_val_buf      },
 };
 
 static const menu_item_t display_items[] = {
