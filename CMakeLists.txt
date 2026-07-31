@@ -14,5 +14,6 @@ FILE(GLOB view_sources
     src/view/overlays/*.c
 )
 FILE(GLOB controller_sources src/controller/*.c)
-target_sources(app PRIVATE ${app_sources} ${model_sources} ${view_sources} ${controller_sources})
+FILE(GLOB console_sources src/console/*.c)
+target_sources(app PRIVATE ${app_sources} ${model_sources} ${view_sources} ${controller_sources} ${console_sources})
 target_include_directories(app PRIVATE src)

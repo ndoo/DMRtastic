@@ -1,68 +1,116 @@
 // Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
 
-#include "usb_cdc.h"
+#include "console_transport.h"
+#include "console_log_backend.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
 
 #include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/sys_io.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/usb/usbd.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/logging/log_backend.h>
-#include <zephyr/logging/log_output.h>
-#include <zephyr/sys/sys_io.h>
 
 /* STM32F4 96-bit Unique Device ID (RM0090 §39.1, base 0x1FFF7A10).
  * Encodes wafer coordinates + lot number. */
 #define STM32_UID_BASE 0x1FFF7A10U
 
-LOG_MODULE_REGISTER(usb_cdc, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(console_transport, LOG_LEVEL_INF);
 
 static const struct device *const uart_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
 
-/* Log path is non-blocking: buffered here (drop-oldest), drained by cdc_drain_thread_fn(). */
+/* ---- TX: single mutex-guarded path, shared by the log backend and every
+ * interactive command's output -- prevents a log line and command output from
+ * interleaving mid-line on the wire. */
 
-#define CDC_LOG_BUF_SIZE 2048
-RING_BUF_DECLARE(cdc_log_ringbuf, CDC_LOG_BUF_SIZE);
-static atomic_t cdc_ready; /* 0 before DTR, 1 after — gates the drain thread */
+static K_MUTEX_DEFINE(tx_mutex);
 
-/** Ring-buffer log sink for the CDC backend; drops oldest bytes when full. */
-static int cdc_log_out_func(uint8_t *data, size_t length, void *ctx)
+void console_transport_write(const void *data, size_t len)
 {
-	ARG_UNUSED(ctx);
+	const uint8_t *p = data;
 
-	uint32_t space = ring_buf_space_get(&cdc_log_ringbuf);
-	if (space < length) {
-		uint8_t discard[64];
-		uint32_t to_drop = length - space;
-		while (to_drop > 0) {
-			uint32_t n = MIN(to_drop, sizeof(discard));
-			ring_buf_get(&cdc_log_ringbuf, discard, n);
-			to_drop -= n;
+	k_mutex_lock(&tx_mutex, K_FOREVER);
+	for (size_t i = 0; i < len; i++) {
+		uart_poll_out(uart_dev, p[i]);
+	}
+	k_mutex_unlock(&tx_mutex);
+}
+
+void console_transport_putc(char c)
+{
+	console_transport_write(&c, 1);
+}
+
+void console_transport_puts(const char *s)
+{
+	console_transport_write(s, strlen(s));
+}
+
+void console_transport_vprintf(const char *fmt, va_list ap)
+{
+	char buf[128];
+	int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+
+	if (n > 0) {
+		console_transport_write(buf, MIN((size_t)n, sizeof(buf) - 1));
+	}
+}
+
+void console_transport_printf(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	console_transport_vprintf(fmt, ap);
+	va_end(ap);
+}
+
+/* ---- RX: ring buffer fed by the UART ISR, drained by console_transport_getc(). */
+
+#define RX_BUF_SIZE 256
+RING_BUF_DECLARE(rx_ringbuf, RX_BUF_SIZE);
+static K_SEM_DEFINE(rx_sem, 0, 1);
+
+static void uart_irq_cb(const struct device *dev, void *user_data)
+{
+	ARG_UNUSED(user_data);
+
+	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
+		uint8_t buf[16];
+		int n = uart_fifo_read(dev, buf, sizeof(buf));
+
+		if (n > 0) {
+			ring_buf_put(&rx_ringbuf, buf, n);
+			k_sem_give(&rx_sem);
 		}
 	}
-	ring_buf_put(&cdc_log_ringbuf, data, length);
-	return (int)length;
 }
 
-static uint8_t cdc_log_out_scratch[128];
-LOG_OUTPUT_DEFINE(cdc_log_output, cdc_log_out_func,
-		  cdc_log_out_scratch, sizeof(cdc_log_out_scratch));
-
-static void cdc_backend_process(const struct log_backend *const backend,
-				union log_msg_generic *msg)
+void console_transport_rx_start(void)
 {
-	ARG_UNUSED(backend);
-	uint32_t flags = LOG_OUTPUT_FLAG_TIMESTAMP | LOG_OUTPUT_FLAG_LEVEL;
-	log_output_msg_process(&cdc_log_output, &msg->log, flags);
+	uart_irq_callback_set(uart_dev, uart_irq_cb);
+	uart_irq_rx_enable(uart_dev);
 }
 
-static const struct log_backend_api cdc_backend_api = {
-	.process = cdc_backend_process,
-};
+int console_transport_getc(void)
+{
+	uint8_t c;
 
-LOG_BACKEND_DEFINE(cdc_backend, cdc_backend_api, true);
+	while (ring_buf_get(&rx_ringbuf, &c, 1) == 0) {
+		k_sem_take(&rx_sem, K_FOREVER);
+	}
+	return (int)c;
+}
+
+/* ---- USB CDC-ACM device lifecycle: descriptors, enumeration, DTR handshake.
+ * Runs entirely in its own thread so a stalled host can't block other code. */
 
 #define USB_VID 0x2fe3
 #define USB_PID 0x0001
@@ -80,8 +128,6 @@ USBD_DESC_CONFIG_DEFINE(fs_cfg_desc, "FS Configuration");
 USBD_CONFIGURATION_DEFINE(usb_fs_config,
 			  USB_SCD_SELF_POWERED,
 			  125, &fs_cfg_desc);
-
-/* Whole USB lifecycle runs in usb_cdc_thread_fn() so a stalled host can't block other code. */
 
 K_SEM_DEFINE(dtr_sem, 0, 1);
 
@@ -133,7 +179,6 @@ static void usb_msg_cb(struct usbd_context *const ctx, const struct usbd_msg *ms
 			k_sem_give(&dtr_sem);
 		}
 	}
-
 }
 
 /** Register descriptors/classes and enable the USBD device. */
@@ -212,8 +257,7 @@ static void usb_cdc_flush_and_enable(void)
 {
 	int ret;
 
-	atomic_set(&cdc_ready, 1);
-	/* Drain thread now owns ring buffer → UART; just raise modem status. */
+	console_log_backend_notify_ready();
 
 	ret = uart_line_ctrl_set(uart_dev, UART_LINE_CTRL_DCD, 1);
 	if (ret) {
@@ -226,7 +270,7 @@ static void usb_cdc_flush_and_enable(void)
 	}
 }
 
-/** Run descriptor init, wait for DTR, then hand the UART to the drain thread. */
+/** Run descriptor init, wait for DTR, then raise modem status once the host has the port open. */
 static void usb_cdc_thread_fn(void *p1, void *p2, void *p3)
 {
 	ARG_UNUSED(p1);
@@ -256,38 +300,3 @@ K_THREAD_DEFINE(usb_cdc_thread_id,
 		USB_CDC_THREAD_STACK_SIZE,
 		usb_cdc_thread_fn, NULL, NULL, NULL,
 		USB_CDC_THREAD_PRIO, 0, 0);
-
-/** Drain cdc_log_ringbuf to the UART once DTR is up; parks pre-DTR at 100ms. */
-static void cdc_drain_thread_fn(void *p1, void *p2, void *p3)
-{
-	ARG_UNUSED(p1);
-	ARG_UNUSED(p2);
-	ARG_UNUSED(p3);
-
-	uint8_t buf[64];
-
-	while (true) {
-		if (!atomic_get(&cdc_ready)) {
-			k_msleep(100);
-			continue;
-		}
-
-		uint32_t n = ring_buf_get(&cdc_log_ringbuf, buf, sizeof(buf));
-		if (n == 0) {
-			k_msleep(10);
-			continue;
-		}
-
-		for (uint32_t i = 0; i < n; i++) {
-			uart_poll_out(uart_dev, buf[i]);
-		}
-	}
-}
-
-#define CDC_DRAIN_THREAD_STACK_SIZE 1024
-#define CDC_DRAIN_THREAD_PRIO       9
-
-K_THREAD_DEFINE(cdc_drain_thread_id,
-		CDC_DRAIN_THREAD_STACK_SIZE,
-		cdc_drain_thread_fn, NULL, NULL, NULL,
-		CDC_DRAIN_THREAD_PRIO, 0, 0);

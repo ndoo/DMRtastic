@@ -411,3 +411,15 @@ lv_obj_t *settings_controller_create_screen(lv_obj_t *parent)
 				       radio_items, ARRAY_SIZE(radio_items),
 				       display_items, ARRAY_SIZE(display_items));
 }
+
+void settings_controller_get_radio_items(const menu_item_t **items, uint8_t *count)
+{
+	*items = radio_items;
+	*count = ARRAY_SIZE(radio_items);
+}
+
+void settings_controller_get_display_items(const menu_item_t **items, uint8_t *count)
+{
+	*items = display_items;
+	*count = ARRAY_SIZE(display_items);
+}

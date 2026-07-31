@@ -10,16 +10,11 @@
 #define DMRTASTIC_UI_SCREEN_SETTINGS_H_
 
 #include "app.h"
+#include "controller/settings_controller.h" /* menu_item_t */
 
 #include <lvgl.h>
 #include <stdbool.h>
 #include <stdint.h>
-
-typedef struct {
-	const char *label;
-	void (*on_select)(int8_t dir); /* dir: +1 forward/CW, -1 backward/CCW */
-	const char *value_str;         /* right-aligned; NULL if action-only */
-} menu_item_t;
 
 /** radio_items/display_items must stay valid for the program's lifetime (static arrays). */
 lv_obj_t *screen_settings_create(lv_obj_t *parent,

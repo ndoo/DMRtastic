@@ -61,11 +61,12 @@ The first run downloads the Zephyr framework package (~1 GB).
 
 The firmware follows a model/view/controller split:
 
-- **model/** — device/settings state and thin 1:1 driver wrappers (`battery.c`, `codeplug.c`, `radio_settings.c`, `radio_state.c`). No UI or business logic; `radio_state.c` is the only file that calls `DEVICE_DT_GET(DT_NODELABEL(at1846s))`.
+- **model/** — device/settings state and thin 1:1 driver wrappers (`battery.c`, `codeplug.c`, `radio_settings.c`, `radio_state.c`, `radio_debug.c`). No UI or business logic; `radio_state.c` and `radio_debug.c` are the only files that call `DEVICE_DT_GET(DT_NODELABEL(at1846s))` (business-level and raw-register access respectively).
 - **view/** — LVGL widget creation and paint from values handed to it (`theme.c`, `status_bar.c`, `view/screens/`, `view/overlays/`). No direct hardware access; `status_bar.c` and `screen_settings.c` call `model/radio_state.c` getters directly, everything else goes through a controller.
 - **controller/** — orchestration between model and view (debounce, value tables, "what happens when X changes"): `settings_controller.c` (Settings menu item tables and callbacks, moved out of `app.c`) and `fm_vfo_controller.c` (debounced retune/rollback state machine, moved out of `screen_fm_vfo.c`).
+- **console/** — a text Controller/View surface over USB CDC-ACM, parallel to the LVGL one rather than outside it: `console_debug.c` (register-level debug commands, backed only by `model/radio_debug.c`) and `console_view.c` (user-facing commands, backed only by the controllers above).
 
-`app.c`/`app.h` (screen manager: nav, frame stack, event queue) and `app_input.c` (input bridge) sit above this split as the app shell. `main.c`, `display.c`, `shell_radio.c`, `usb_cdc.c`, and `watchdog.c` are platform/system level, outside the UI's MVC tree entirely.
+`app.c`/`app.h` (screen manager: nav, frame stack, event queue) and `app_input.c` (input bridge) sit above this split as the app shell. `main.c`, `display.c`, and `watchdog.c` are platform/system level, outside the UI's MVC tree entirely.
 
 ## Flash
 
@@ -87,21 +88,28 @@ An LVGL UI runs over the shared keypad/LCD data bus, driven by Up/Down/Enter/Bac
 
 Two-axis navigation convention, used consistently across every tabview: Up/Down always move focus (tab cycling, then row selection within a tab); the encoder never moves focus and instead adjusts whatever's currently focused.
 
-## Shell Commands
+## Console Commands
 
-Interactive shell over USB CDC-ACM (`src/shell_radio.c`):
+Interactive console over USB CDC-ACM (`src/console/`). Debug commands
+(`console_debug.c`) poke registers directly for bring-up; view commands
+(`console_view.c`) go through the same Controller/Model layer the LVGL UI
+uses:
 
-| Command | Purpose |
-|---|---|
-| `at r/w` | Raw AT1846S register read/write |
-| `hc r/w` | Raw HR-C6000 register read/write |
-| `rssi` | Live RSSI reading |
-| `cp list` | List known codeplug flash regions |
-| `cp dump <addr> <len>` | Raw codeplug flash hexdump |
-| `cp region <name> [idx]` | Typed decode of one codeplug region |
-| `cp settings` | On-flash nv-settings block + magic number |
-| `cp info` | JEDEC ID, device info, calibration sanity check |
-| `rtc r/w` | Read/set the hardware RTC date-time |
+| Command | Layer | Purpose |
+|---|---|---|
+| `at r/w` | debug | Raw AT1846S register read/write |
+| `hc r/w` | debug | Raw HR-C6000 register read/write |
+| `rssi` | debug | Raw AT1846S 0x1B noise/signal read |
+| `cp list` | debug | List known codeplug flash regions |
+| `cp dump <addr> <len>` | debug | Raw codeplug flash hexdump |
+| `cp region <name> [idx]` | debug | Typed decode of one codeplug region |
+| `cp settings` | debug | On-flash nv-settings block + magic number |
+| `cp info` | debug | JEDEC ID, device info, calibration sanity check |
+| `rtc r/w` | debug | Read/set the hardware RTC date-time |
+| `reboot` | debug | Warm-reset the MCU |
+| `status` | view | Current VFO/frequency/RSSI/squelch |
+| `settings list` / `settings set <radio\|display> <label> up\|down` | view | Read/adjust any Settings-screen row |
+| `css tx\|rx off\|ctcss\|dcs` | view | Set the shared CTCSS/DCS setting |
 
 `tools/radio_diag.py` drives the `at`/`hc`/`rssi` commands from the host for automated register sweeps and gain/filter characterization.
 
@@ -127,23 +135,29 @@ Bus speed is set entirely by GPIO toggle overhead; the `frequency` field of
 this comes out to roughly 4 MHz per bit, well within the HR-C6000 SPI
 maximum.
 
-### USB CDC-ACM (`src/usb_cdc.c`, `src/usb_cdc.h`)
+### USB CDC-ACM console (`src/console/`)
 
-USB CDC-ACM has no public API and runs entirely in its own thread. The
-whole lifecycle (descriptor registration, enumeration wait, DTR handshake,
-log-backend handover) lives in `usb_cdc_thread_fn()` so a stalled host or a
-misbehaving USB stack can't block the radio control loop, the watchdog
-feed, or the UI.
+`console_transport.c` owns the one physical UART (USB CDC-ACM) and is the
+only file allowed to touch it or the USBD stack. The whole USB lifecycle
+(descriptor registration, enumeration wait, DTR handshake) lives in its own
+thread so a stalled host or a misbehaving USB stack can't block the radio
+control loop, the watchdog feed, or the UI. TX is mutex-guarded
+(`console_transport_write()`) so log output and interactive command output
+can never interleave mid-line on the wire.
 
-Logging over USB is non-blocking: `cdc_log_out_func()` only writes
-into a ring buffer (drop-oldest when full); a dedicated drain thread
-(`cdc_drain_thread_fn()`) flushes it to the CDC ACM UART via
-`uart_poll_out()`, which yields via `k_msleep(1)` when the TX FIFO is full
-so the drain thread never spins. If the host stops draining, only the
-drain thread stalls — logs accumulate and the oldest are dropped, but
-everything else keeps running. Pre-DTR, the drain thread parks on a 100 ms
-poll so boot-time logs are buffered for replay once the host opens the
-port.
+Logging over USB is non-blocking: `console_log_backend.c`'s
+`cdc_log_out_func()` only writes into a ring buffer (drop-oldest when
+full); a dedicated drain thread flushes it through
+`console_transport_write()`. If the host stops draining, only the drain
+thread stalls — logs accumulate and the oldest are dropped, but everything
+else keeps running. Pre-DTR, the drain thread parks on a 100 ms poll so
+boot-time logs are buffered for replay once the host opens the port.
+
+Interactive commands (`console_dispatch.c`) run on a separate thread reading
+the same UART's RX side via an interrupt-fed ring buffer, dispatching each
+line to a table of `{name, help, handler}` entries split across
+`console_debug.c` (hardware-direct) and `console_view.c` (Controller/Model
+only) — see [Architecture](#architecture) above.
 
 ### Shared keypad/LCD bus (`drivers/kbd_matrix_shared_bus/`, `src/display.c`)
 
