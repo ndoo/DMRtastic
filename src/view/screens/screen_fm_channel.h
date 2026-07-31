@@ -24,4 +24,13 @@ void      screen_fm_channel_update(lv_obj_t *screen);
 /** Forwards a step to the controller; see channel_controller_step(). */
 void      screen_fm_channel_step(lv_obj_t *screen, bool up);
 
+/** Forwards a digit-entry keypress to the controller; see channel_controller_entry_digit(). */
+void      screen_fm_channel_entry_digit(lv_obj_t *screen, int digit);
+
+/** Forwards an entry-commit to the controller; see channel_controller_entry_commit(). */
+void      screen_fm_channel_entry_commit(lv_obj_t *screen);
+
+/** Forwards an entry-cancel to the controller; see channel_controller_entry_cancel(). */
+void      screen_fm_channel_entry_cancel(lv_obj_t *screen);
+
 #endif /* DMRTASTIC_UI_SCREEN_FM_CHANNEL_H_ */

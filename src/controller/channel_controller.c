@@ -15,6 +15,11 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 static struct cp_channel s_channel;
 static int               s_index_1based; /* 0 = no in-use channel found */
 
+/* Direct channel-number digit entry -- a plain accumulator, not a digit array like
+ * fm_vfo_controller's fixed-8-digit frequency entry (see channel_controller.h). 0 means no
+ * entry is in progress. */
+static int s_entry_value;
+
 /** Reads slot index_1based and reports whether it's a populated (in-use) channel. */
 static bool load_channel(int index_1based, struct cp_channel *out)
 {
@@ -123,4 +128,54 @@ bool channel_controller_get_current(struct cp_channel *out)
 int channel_controller_get_current_index(void)
 {
 	return s_index_1based;
+}
+
+bool channel_controller_entry_active(void)
+{
+	return s_entry_value > 0;
+}
+
+int channel_controller_entry_value(void)
+{
+	return s_entry_value;
+}
+
+void channel_controller_entry_digit(int digit)
+{
+	if (digit < 0 || digit > 9) {
+		return;
+	}
+
+	int candidate = s_entry_value * 10 + digit;
+
+	if (candidate > CP_CHANNEL_INDEX_MAX) {
+		/* Whole-entry reset on overflow, not a last-digit backout -- see
+		 * channel_controller_entry_digit()'s doc comment. */
+		s_entry_value = 0;
+		return;
+	}
+	s_entry_value = candidate;
+}
+
+void channel_controller_entry_commit(void)
+{
+	if (s_entry_value == 0) {
+		return;
+	}
+
+	struct cp_channel candidate;
+
+	if (load_channel(s_entry_value, &candidate)) {
+		s_index_1based = s_entry_value;
+		s_channel = candidate;
+		apply_to_radio(&s_channel);
+	} else {
+		LOG_WRN("channel_controller_entry_commit: channel %d not in use", s_entry_value);
+	}
+	s_entry_value = 0;
+}
+
+void channel_controller_entry_cancel(void)
+{
+	s_entry_value = 0;
 }

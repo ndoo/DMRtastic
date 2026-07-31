@@ -79,14 +79,20 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 	}
 }
 
-/** OK opens Settings; Up/Down and the encoder both step to the next/previous in-use
- * codeplug channel. No digit-entry handling here -- direct-frequency entry is a VFO-mode
- * concept (Milestone 1c), not a channel-mode one. */
+/** OK opens Settings, or commits an in-progress direct channel-number entry if one is active
+ * (Milestone 3d). Up/Down and the encoder step to the next/previous in-use codeplug channel.
+ * Digit keys drive direct channel-number entry, same no-separate-"enter mode" convention as
+ * FM VFO's frequency entry; no Star/backspace here -- this entry has no backspace, only
+ * commit or cancel. */
 static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
 	case UI_ACTION_OK:
-		app_push_screen(SCREEN_SETTINGS);
+		if (channel_controller_entry_active()) {
+			screen_fm_channel_entry_commit(screen);
+		} else {
+			app_push_screen(SCREEN_SETTINGS);
+		}
 		break;
 	case UI_ACTION_UP:
 	case UI_ACTION_ENCODER_CW:
@@ -95,6 +101,18 @@ static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
 	case UI_ACTION_DOWN:
 	case UI_ACTION_ENCODER_CCW:
 		screen_fm_channel_step(screen, false);
+		break;
+	case UI_ACTION_KEY_0:
+	case UI_ACTION_KEY_1:
+	case UI_ACTION_KEY_2:
+	case UI_ACTION_KEY_3:
+	case UI_ACTION_KEY_4:
+	case UI_ACTION_KEY_5:
+	case UI_ACTION_KEY_6:
+	case UI_ACTION_KEY_7:
+	case UI_ACTION_KEY_8:
+	case UI_ACTION_KEY_9:
+		screen_fm_channel_entry_digit(screen, action - UI_ACTION_KEY_0);
 		break;
 	default:
 		break;
@@ -309,8 +327,8 @@ static void dispatch_action(ui_action_t action)
 	switch (action) {
 	case UI_ACTION_BACK:
 		/* Priority: quick-menu overlay > tabview row level > in-progress digit
-		 * entry > VFO<->Channel root toggle > leave the frame; each check only
-		 * fires if the one above it doesn't apply. */
+		 * entry (either screen) > VFO<->Channel root toggle > leave the frame;
+		 * each check only fires if the one above it doesn't apply. */
 		if (overlay_quickmenu_is_active()) {
 			overlay_quickmenu_hide();
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS &&
@@ -319,6 +337,9 @@ static void dispatch_action(ui_action_t action)
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_FM_VFO &&
 			   fm_vfo_controller_entry_active()) {
 			screen_fm_vfo_entry_cancel(s_frame_obj[SCREEN_FM_VFO]);
+		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_FM_CHANNEL &&
+			   channel_controller_entry_active()) {
+			screen_fm_channel_entry_cancel(s_frame_obj[SCREEN_FM_CHANNEL]);
 		} else if (s_frame_top == 0 && s_frame_stack[0] == SCREEN_FM_VFO) {
 			/* Root of FM VFO, nothing to pop -- a bare Back short-press
 			 * toggles to Channel mode instead (Milestone 3c). */

@@ -21,6 +21,7 @@ typedef struct {
 	int       shown_index; /* channel_controller's index as of the last paint; -1 forces
 				 * the first update() to paint unconditionally (0 is itself a
 				 * valid "no in-use channel" value from the controller). */
+	bool      shown_entry_active; /* whether the last paint was a digit-entry buffer */
 } fm_channel_data_t;
 
 static void fmt_freq(char *buf, size_t len, uint32_t hz)
@@ -56,6 +57,7 @@ lv_obj_t *screen_fm_channel_create(lv_obj_t *parent)
 	fm_channel_data_t *d = lv_malloc(sizeof(*d));
 	__ASSERT_NO_MSG(d != NULL);
 	d->shown_index = -1;
+	d->shown_entry_active = false;
 	lv_obj_set_user_data(scr, d);
 
 	/* Channel index + name — top */
@@ -96,16 +98,39 @@ void screen_fm_channel_destroy(lv_obj_t *screen)
 	lv_obj_delete(screen);
 }
 
-/** Repaints from channel_controller's cache; widgets only touched when the index changes. */
+/** Repaints from channel_controller's cache; widgets only touched when the index (or the
+ * digit-entry buffer) changes. */
 void screen_fm_channel_update(lv_obj_t *screen)
 {
 	fm_channel_data_t *d = lv_obj_get_user_data(screen);
-	int index = channel_controller_get_current_index();
 
 	/* Unconditional, like screen_fm_vfo_update()'s own trailing status_bar_set_mode()
 	 * call -- must run even when index hasn't changed (e.g. just switched onto this
 	 * screen from FM VFO via BACK), not just when the widgets below get repainted. */
 	status_bar_set_mode("CH");
+
+	if (channel_controller_entry_active()) {
+		char buf[24];
+
+		/* Plain decimal, no leading-zero padding, unlike fm_vfo_controller's
+		 * fixed-width '-'-padded frequency entry -- channel numbers have no
+		 * fixed display width. Only the name_label swaps; freq/bw/css keep
+		 * showing the still-current channel underneath. */
+		snprintf(buf, sizeof(buf), "Ch %d", channel_controller_entry_value());
+		lv_label_set_text(d->name_label, buf);
+		d->shown_entry_active = true;
+		return;
+	}
+
+	int index = channel_controller_get_current_index();
+
+	/* Force a repaint on the first inactive tick after an entry just ended (committed
+	 * or cancelled), even if the index didn't change (e.g. cancelled, or committed to
+	 * the channel already shown) -- same reasoning as screen_fm_vfo_update(). */
+	if (d->shown_entry_active) {
+		d->shown_index = -1;
+	}
+	d->shown_entry_active = false;
 
 	if (index == d->shown_index) {
 		return;
@@ -140,4 +165,25 @@ void screen_fm_channel_step(lv_obj_t *screen, bool up)
 {
 	(void)screen; /* controller state is a static singleton -- only one Channel screen exists */
 	channel_controller_step(up);
+}
+
+/** Forwards a digit-entry keypress to the controller; see channel_controller_entry_digit(). */
+void screen_fm_channel_entry_digit(lv_obj_t *screen, int digit)
+{
+	(void)screen;
+	channel_controller_entry_digit(digit);
+}
+
+/** Forwards an entry-commit to the controller; see channel_controller_entry_commit(). */
+void screen_fm_channel_entry_commit(lv_obj_t *screen)
+{
+	(void)screen;
+	channel_controller_entry_commit();
+}
+
+/** Forwards an entry-cancel to the controller; see channel_controller_entry_cancel(). */
+void screen_fm_channel_entry_cancel(lv_obj_t *screen)
+{
+	(void)screen;
+	channel_controller_entry_cancel();
 }
