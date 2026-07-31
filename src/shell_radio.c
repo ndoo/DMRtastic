@@ -21,6 +21,7 @@
 #include <drivers/radio/radio_transceiver.h>
 
 #include "model/codeplug.h"
+#include "model/radio_state.h"
 
 static const struct device *const uart_dev =
 	DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
@@ -278,6 +279,62 @@ static void cmd_rssi(void)
 		 * lo = signal/RSSI indicator */
 		shell_printf("RSSI 0x1B: noise=%02X signal=%02X\r\n", hi, lo);
 	}
+}
+
+/** "css tx|rx off" / "css tx|rx ctcss <tenths_hz>" / "css tx|rx dcs <code> n|i" —
+ * drive radio_state_set_tx_css()/_set_rx_css() directly (the radio_state/radio_settings
+ * wiring; does not go through settings_controller.c or any UI, neither of which apply
+ * this yet). DCS routes to the AT1846S driver's set_tx_dcs/set_rx_dcs, which are
+ * currently -ENOTSUP stubs -- only "ctcss"/"off" will actually program hardware today. */
+static void cmd_css(char *args)
+{
+	char *side = strtok(args, " \t");
+	char *sub  = strtok(NULL, " \t");
+	char *arg1 = strtok(NULL, " \t");
+	char *arg2 = strtok(NULL, " \t");
+
+	if (!side || (strcmp(side, "tx") != 0 && strcmp(side, "rx") != 0)) {
+		shell_puts("ERR: css tx|rx off|ctcss <tenths_hz>|dcs <code> n|i\r\n");
+		return;
+	}
+
+	struct cp_css css = { .type = CP_CSS_NONE, .value = 0, .inverted = false };
+
+	if (!sub || strcmp(sub, "off") == 0) {
+		/* css already CP_CSS_NONE. */
+	} else if (strcmp(sub, "ctcss") == 0) {
+		int tenths;
+
+		if (!parse_dec(arg1, &tenths) || tenths <= 0) {
+			shell_puts("ERR: css tx|rx ctcss <tenths_hz>\r\n");
+			return;
+		}
+		css.type = CP_CSS_CTCSS;
+		css.value = (uint16_t)tenths;
+	} else if (strcmp(sub, "dcs") == 0) {
+		int code;
+
+		if (!parse_dec(arg1, &code) || !arg2 || (arg2[0] != 'n' && arg2[0] != 'i')) {
+			shell_puts("ERR: css tx|rx dcs <code> n|i\r\n");
+			return;
+		}
+		css.type = CP_CSS_DCS;
+		css.value = (uint16_t)code;
+		css.inverted = (arg2[0] == 'i');
+	} else {
+		shell_puts("ERR: css tx|rx off|ctcss <tenths_hz>|dcs <code> n|i\r\n");
+		return;
+	}
+
+	int rc = (strcmp(side, "tx") == 0) ? radio_state_set_tx_css(&css)
+					    : radio_state_set_rx_css(&css);
+	char buf[16];
+
+	shell_printf("%s %s: %s", side, format_css(css, buf, sizeof(buf)), rc < 0 ? "ERR" : "OK");
+	if (rc < 0) {
+		shell_printf(" (%d)", rc);
+	}
+	shell_puts("\r\n");
 }
 
 /** "cp list" — print every known codeplug region: name, offset, size. */
@@ -611,6 +668,9 @@ static void cmd_help(void)
 		"hc r <page> <reg>        read HR-C6000 reg\r\n"
 		"hc w <page> <reg> <val>  write HR-C6000 reg\r\n"
 		"rssi                     AT1846S 0x1B noise/signal\r\n"
+		"css tx|rx off                  clear TX/RX CTCSS+DCS\r\n"
+		"css tx|rx ctcss <tenths_hz>     set TX/RX CTCSS tone (2035 = 203.5 Hz)\r\n"
+		"css tx|rx dcs <code> n|i        set TX/RX DCS code, normal/inverted (-ENOTSUP today)\r\n"
 		"cp dump <addr> <len>     raw codeplug flash hexdump\r\n"
 		"cp list                  list known codeplug regions\r\n"
 		"cp region <name> [idx]   decode a named codeplug region\r\n"
@@ -639,6 +699,8 @@ static void dispatch(char *line)
 		cmd_hc(rest ? rest : "");
 	} else if (strcmp(cmd, "rssi") == 0) {
 		cmd_rssi();
+	} else if (strcmp(cmd, "css") == 0) {
+		cmd_css(rest ? rest : "");
 	} else if (strcmp(cmd, "cp") == 0) {
 		cmd_cp(rest ? rest : "");
 	} else if (strcmp(cmd, "rtc") == 0) {
