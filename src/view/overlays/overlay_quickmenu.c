@@ -3,8 +3,10 @@
 
 #include "overlay_quickmenu.h"
 #include "../theme.h"
+#include "controller/fm_vfo_controller.h"
 
 #include <lvgl.h>
+#include <string.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
@@ -19,6 +21,7 @@ static const char *const s_row_labels[] = {
 	"Bandwidth",
 	"Squelch",
 	"CTCSS/DCS",
+	"VFO A/B",
 };
 
 static lv_obj_t   *s_panel;
@@ -62,7 +65,13 @@ static void row_cb(lv_event_t *e)
 
 	const char *label = lv_event_get_user_data(e);
 
-	LOG_INF("quick menu: %s not yet implemented", label);
+	if (strcmp(label, "VFO A/B") == 0) {
+		int cur = fm_vfo_controller_get_current_vfo();
+
+		fm_vfo_controller_set_current_vfo(cur == 0 ? 1 : 0);
+	} else {
+		LOG_INF("quick menu: %s not yet implemented", label);
+	}
 	overlay_quickmenu_hide();
 	lv_timer_pause(s_dismiss_timer);
 }

@@ -322,7 +322,10 @@ static void dispatch_action(ui_action_t action)
 	case UI_ACTION_KEY_8:
 	case UI_ACTION_KEY_9:
 	case UI_ACTION_KEY_STAR:
-		if (s_frame_top >= 0) {
+		/* The quick-menu's own row nav/selection runs through the shared lv_group indev --
+		 * skip forwarding here too, or every press double-handles (e.g. Up/Down also steps
+		 * the VFO underneath). */
+		if (s_frame_top >= 0 && !overlay_quickmenu_is_active()) {
 			screen_id_t id = s_frame_stack[s_frame_top];
 
 			if (frame_ops[id].handle_action) {

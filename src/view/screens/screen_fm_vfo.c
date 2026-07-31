@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "screen_fm_vfo.h"
+#include "../status_bar.h"
 #include "../theme.h"
 #include "app.h"
 #include "controller/fm_vfo_controller.h"
@@ -161,6 +162,8 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 				    sq_open ? theme_colors()->status_success
 					    : theme_colors()->surface_alt,
 				    LV_PART_MAIN);
+
+	status_bar_set_mode(fm_vfo_controller_get_current_vfo() == 0 ? "FM A" : "FM B");
 }
 
 /** Forwards a step to the controller; see fm_vfo_controller_step(). */
