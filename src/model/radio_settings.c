@@ -11,6 +11,7 @@ LOG_MODULE_REGISTER(radio_settings, LOG_LEVEL_INF);
 struct radio_settings {
 	uint8_t  squelch_level;
 	bool     bandwidth_is_25k;
+	struct cp_css css;
 	uint32_t vfo_step_hz;
 	uint8_t  brightness_pct;
 	uint8_t  backlight_off_pct;
@@ -26,6 +27,7 @@ struct radio_settings {
 static struct radio_settings s_settings = {
 	.squelch_level = 55,
 	.bandwidth_is_25k = true,
+	.css = { .type = CP_CSS_NONE, .value = 0, .inverted = false },
 	.vfo_step_hz = 5000,
 	.brightness_pct = 100,
 	.backlight_off_pct = 10,
@@ -176,6 +178,17 @@ void settings_set_bandwidth_is_25k(bool is_25k)
 {
 	s_settings.bandwidth_is_25k = is_25k;
 	notify(SETTINGS_KEY_BANDWIDTH);
+}
+
+struct cp_css settings_get_css(void)
+{
+	return s_settings.css;
+}
+
+void settings_set_css(struct cp_css css)
+{
+	s_settings.css = css;
+	notify(SETTINGS_KEY_CSS);
 }
 
 uint32_t settings_get_vfo_step_hz(void)

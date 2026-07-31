@@ -75,3 +75,33 @@ int radio_state_set_volume(uint8_t pct)
 {
 	return trx_api()->set_volume(trx_dev(), pct);
 }
+
+int radio_state_set_rx_css(const struct cp_css *css)
+{
+	const struct radio_trx_api *api = trx_api();
+
+	switch (css->type) {
+	case CP_CSS_DCS:
+		return api->set_rx_dcs(trx_dev(), css->value, css->inverted);
+	case CP_CSS_CTCSS:
+		return api->set_rx_ctcss(trx_dev(), css->value);
+	case CP_CSS_NONE:
+	default:
+		return api->set_rx_ctcss(trx_dev(), 0);
+	}
+}
+
+int radio_state_set_tx_css(const struct cp_css *css)
+{
+	const struct radio_trx_api *api = trx_api();
+
+	switch (css->type) {
+	case CP_CSS_DCS:
+		return api->set_tx_dcs(trx_dev(), css->value, css->inverted);
+	case CP_CSS_CTCSS:
+		return api->set_tx_ctcss(trx_dev(), css->value);
+	case CP_CSS_NONE:
+	default:
+		return api->set_tx_ctcss(trx_dev(), 0);
+	}
+}

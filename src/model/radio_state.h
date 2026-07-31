@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "codeplug.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,6 +33,12 @@ uint8_t radio_state_get_rssi_bars(void);
 int radio_state_set_squelch(uint8_t level);
 int radio_state_set_bandwidth(bool is_25k);
 int radio_state_set_volume(uint8_t pct);
+
+/* Programs CSS (CTCSS/DCS) on the RX or TX side per css->type; CP_CSS_NONE clears
+ * whichever tone/code was previously set. DCS is unimplemented in the AT1846S driver
+ * today (-ENOTSUP) -- these still route to it so the wiring is correct once it lands. */
+int radio_state_set_rx_css(const struct cp_css *css);
+int radio_state_set_tx_css(const struct cp_css *css);
 
 #ifdef __cplusplus
 }

@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "codeplug.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -20,6 +22,7 @@ extern "C" {
 enum settings_key {
 	SETTINGS_KEY_SQUELCH,
 	SETTINGS_KEY_BANDWIDTH,
+	SETTINGS_KEY_CSS,
 	SETTINGS_KEY_VFO_STEP,
 	SETTINGS_KEY_BRIGHTNESS,
 	SETTINGS_KEY_BACKLIGHT_OFF,
@@ -58,6 +61,12 @@ void     settings_set_squelch_level(uint8_t level);
 
 bool     settings_get_bandwidth_is_25k(void);
 void     settings_set_bandwidth_is_25k(bool is_25k);
+
+/* Shared tone/code applied to both TX and RX -- this radio's UI (quick menu and Settings
+ * Radio tab) exposes a single "CTCSS/DCS" control, not independent TX/RX tones, so there's
+ * only one value to track here. CP_CSS_NONE (the default) means off. */
+struct cp_css settings_get_css(void);
+void          settings_set_css(struct cp_css css);
 
 uint32_t settings_get_vfo_step_hz(void);
 void     settings_set_vfo_step_hz(uint32_t hz);
