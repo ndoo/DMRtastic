@@ -61,9 +61,9 @@ The first run downloads the Zephyr framework package (~1 GB).
 
 The firmware follows a model/view/controller split:
 
-- **model/** — device/settings state and thin 1:1 driver wrappers (`battery.c`, `codeplug.c`, `radio_settings.c`). No UI or business logic.
-- **view/** — LVGL widget creation and paint from values handed to it (`theme.c`, `status_bar.c`, `view/screens/`, `view/overlays/`). No direct hardware access.
-- **controller/** — orchestration between model and view (debounce, value tables, "what happens when X changes"). Not yet populated; that logic currently still lives in `app.c`, and `view/screens/screen_fm_vfo.c` and `view/status_bar.c` still call the AT1846S driver directly pending further refactor work.
+- **model/** — device/settings state and thin 1:1 driver wrappers (`battery.c`, `codeplug.c`, `radio_settings.c`, `radio_state.c`). No UI or business logic; `radio_state.c` is the only file that calls `DEVICE_DT_GET(DT_NODELABEL(at1846s))`.
+- **view/** — LVGL widget creation and paint from values handed to it (`theme.c`, `status_bar.c`, `view/screens/`, `view/overlays/`). No direct hardware access; `status_bar.c` and `screen_settings.c` call `model/radio_state.c` getters directly, everything else goes through a controller.
+- **controller/** — orchestration between model and view (debounce, value tables, "what happens when X changes"): `settings_controller.c` (Settings menu item tables and callbacks, moved out of `app.c`) and `fm_vfo_controller.c` (debounced retune/rollback state machine, moved out of `screen_fm_vfo.c`).
 
 `app.c`/`app.h` (screen manager: nav, frame stack, event queue) and `app_input.c` (input bridge) sit above this split as the app shell. `main.c`, `display.c`, `shell_radio.c`, `usb_cdc.c`, and `watchdog.c` are platform/system level, outside the UI's MVC tree entirely.
 

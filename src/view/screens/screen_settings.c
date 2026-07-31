@@ -4,16 +4,13 @@
 #include "screen_settings.h"
 #include "../theme.h"
 #include "app.h"
+#include "model/radio_state.h"
 
-#include <zephyr/device.h>
-#include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/version.h>
 #include <lvgl.h>
 #include <stdio.h>
-
-#include <drivers/radio/radio_transceiver.h>
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
@@ -327,11 +324,9 @@ void screen_settings_update(lv_obj_t *screen)
 	snprintf(buf, sizeof(buf), "Uptime: %lld s", k_uptime_get() / 1000LL);
 	lv_label_set_text(s_info_uptime_label, buf);
 
-	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct radio_trx_api *api = (const struct radio_trx_api *)trx->api;
-	uint8_t signal = 0, noise = 0;
+	uint8_t signal, noise;
 
-	api->get_rssi(trx, &signal, &noise);
+	radio_state_get_rssi(&signal, &noise);
 	snprintf(buf, sizeof(buf), "RSSI sig=%u noise=%u", signal, noise);
 	lv_label_set_text(s_info_rssi_label, buf);
 }
