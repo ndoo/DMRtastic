@@ -543,9 +543,14 @@ static int at1846s_api_set_tx_ctcss(const struct device *dev, uint16_t tone_dHz)
 						       0xF9FF, 0x0000);
 		}
 	} else {
+		/* Register wants ctcss_freq(Hz)*100 (programming guide sec. 7); tone_dHz is
+		 * ctcss_freq(Hz)*10, so scale up by 10 -- max CTCSS tone (~254.1 Hz) is well
+		 * under the uint16_t ceiling after scaling. */
+		uint16_t reg_word = (uint16_t)(tone_dHz * 10);
+
 		rc = at1846s_write_reg_locked(dev, AT1846S_REG_CTCSS1,
-					      (tone_dHz >> 8) & 0xFF,
-					      tone_dHz & 0xFF);
+					      (reg_word >> 8) & 0xFF,
+					      reg_word & 0xFF);
 		if (rc == 0) {
 			rc = at1846s_write_reg_locked(dev, AT1846S_REG_CTCSS2,
 						      0, 0);
@@ -609,9 +614,12 @@ static int at1846s_api_set_rx_ctcss(const struct device *dev, uint16_t tone_dHz)
 		rc = at1846s_write_reg_locked(dev, AT1846S_REG_DCS_LO, 0, 0);
 	}
 	if (rc == 0) {
+		/* Same *10 scaling as the TX path -- see comment there. */
+		uint16_t reg_word = (uint16_t)(tone_dHz * 10);
+
 		rc = at1846s_write_reg_locked(dev, AT1846S_REG_CTCSS2,
-					      (tone_dHz >> 8) & 0xFF,
-					      tone_dHz & 0xFF);
+					      (reg_word >> 8) & 0xFF,
+					      reg_word & 0xFF);
 	}
 	if (rc == 0) {
 		rc = at1846s_write_reg_locked(dev, AT1846S_REG_CTCSS_TH,
