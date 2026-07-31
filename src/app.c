@@ -13,6 +13,7 @@
 #include "view/overlays/overlay_quickmenu.h"
 #include "view/screens/screen_boot.h"
 #include "view/screens/screen_fm_vfo.h"
+#include "view/screens/screen_fm_channel.h"
 #include "view/screens/screen_settings.h"
 #include "controller/settings_controller.h"
 #include "controller/fm_vfo_controller.h"
@@ -78,13 +79,36 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 	}
 }
 
+/** OK opens Settings; Up/Down and the encoder both step to the next/previous in-use
+ * codeplug channel. No digit-entry handling here -- direct-frequency entry is a VFO-mode
+ * concept (Milestone 1c), not a channel-mode one. */
+static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
+{
+	switch (action) {
+	case UI_ACTION_OK:
+		app_push_screen(SCREEN_SETTINGS);
+		break;
+	case UI_ACTION_UP:
+	case UI_ACTION_ENCODER_CW:
+		screen_fm_channel_step(screen, true);
+		break;
+	case UI_ACTION_DOWN:
+	case UI_ACTION_ENCODER_CCW:
+		screen_fm_channel_step(screen, false);
+		break;
+	default:
+		break;
+	}
+}
+
 static const frame_ops_t frame_ops[SCREEN_COUNT] = {
 	[SCREEN_FM_VFO]      = { screen_fm_vfo_create, screen_fm_vfo_update,
 				  fm_vfo_handle_action                          },
+	[SCREEN_FM_CHANNEL]  = { screen_fm_channel_create, screen_fm_channel_update,
+				  fm_channel_handle_action                       },
 	[SCREEN_SETTINGS]    = { settings_controller_create_screen, screen_settings_update,
 				  screen_settings_handle_action                 },
 	/* stubs — not implemented */
-	[SCREEN_FM_CHANNEL]  = { NULL, NULL, NULL },
 	[SCREEN_DMR_VFO]     = { NULL, NULL, NULL },
 	[SCREEN_DMR_CHANNEL] = { NULL, NULL, NULL },
 	[SCREEN_CONTACTS]    = { NULL, NULL, NULL },
@@ -285,8 +309,8 @@ static void dispatch_action(ui_action_t action)
 	switch (action) {
 	case UI_ACTION_BACK:
 		/* Priority: quick-menu overlay > tabview row level > in-progress digit
-		 * entry > leave the frame; each check only fires if the one above it
-		 * doesn't apply. */
+		 * entry > VFO<->Channel root toggle > leave the frame; each check only
+		 * fires if the one above it doesn't apply. */
 		if (overlay_quickmenu_is_active()) {
 			overlay_quickmenu_hide();
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS &&
@@ -295,6 +319,12 @@ static void dispatch_action(ui_action_t action)
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_FM_VFO &&
 			   fm_vfo_controller_entry_active()) {
 			screen_fm_vfo_entry_cancel(s_frame_obj[SCREEN_FM_VFO]);
+		} else if (s_frame_top == 0 && s_frame_stack[0] == SCREEN_FM_VFO) {
+			/* Root of FM VFO, nothing to pop -- a bare Back short-press
+			 * toggles to Channel mode instead (Milestone 3c). */
+			app_switch_screen(SCREEN_FM_CHANNEL);
+		} else if (s_frame_top == 0 && s_frame_stack[0] == SCREEN_FM_CHANNEL) {
+			app_switch_screen(SCREEN_FM_VFO);
 		} else {
 			app_pop_screen();
 		}
@@ -413,6 +443,8 @@ void app_init(void)
 	/* Static top-level frames — created once, hidden until shown. */
 	s_frame_obj[SCREEN_FM_VFO] = frame_ops[SCREEN_FM_VFO].create(s_content);
 	lv_obj_add_flag(s_frame_obj[SCREEN_FM_VFO], LV_OBJ_FLAG_HIDDEN);
+	s_frame_obj[SCREEN_FM_CHANNEL] = frame_ops[SCREEN_FM_CHANNEL].create(s_content);
+	lv_obj_add_flag(s_frame_obj[SCREEN_FM_CHANNEL], LV_OBJ_FLAG_HIDDEN);
 	s_frame_obj[SCREEN_SETTINGS] = frame_ops[SCREEN_SETTINGS].create(s_content);
 	lv_obj_add_flag(s_frame_obj[SCREEN_SETTINGS], LV_OBJ_FLAG_HIDDEN);
 
@@ -494,7 +526,9 @@ void app_pop_screen(void)
 	LOG_DBG("pop to frame %d (depth %d)", id, s_frame_top + 1);
 }
 
-/** One-time boot transition: destroys the boot splash and shows id as the base frame. */
+/** Replaces the base (depth-0) frame with id, clearing any Back history above it. Handles
+ * the one-time boot transition (destroys the boot splash) as well as the FM VFO<->Channel
+ * mode toggle (Milestone 3c), which both land here with s_frame_top already at -1 or 0. */
 void app_switch_screen(screen_id_t id)
 {
 	if (s_boot_obj) {
@@ -507,9 +541,16 @@ void app_switch_screen(screen_id_t id)
 		return;
 	}
 
+	if (s_frame_top >= 0) {
+		lv_obj_add_flag(s_frame_obj[s_frame_stack[s_frame_top]], LV_OBJ_FLAG_HIDDEN);
+	}
+
 	s_frame_top = 0;
 	s_frame_stack[0] = id;
 	lv_obj_remove_flag(s_frame_obj[id], LV_OBJ_FLAG_HIDDEN);
+	if (frame_ops[id].update) {
+		frame_ops[id].update(s_frame_obj[id]);
+	}
 
 	LOG_DBG("switch to frame %d", id);
 }
