@@ -40,7 +40,9 @@ typedef struct {
 	void      (*handle_action)(lv_obj_t *screen, ui_action_t action);
 } frame_ops_t;
 
-/** OK opens Settings; Up/Down and the encoder both step the RX frequency. */
+/** OK opens Settings; Up/Down and the encoder both step the RX frequency; digit keys drive
+ * direct-frequency entry (no separate "enter mode" keypress) and Star backspaces the
+ * entry's last digit. */
 static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
@@ -54,6 +56,21 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 	case UI_ACTION_DOWN:
 	case UI_ACTION_ENCODER_CCW:
 		screen_fm_vfo_step(screen, false);
+		break;
+	case UI_ACTION_KEY_0:
+	case UI_ACTION_KEY_1:
+	case UI_ACTION_KEY_2:
+	case UI_ACTION_KEY_3:
+	case UI_ACTION_KEY_4:
+	case UI_ACTION_KEY_5:
+	case UI_ACTION_KEY_6:
+	case UI_ACTION_KEY_7:
+	case UI_ACTION_KEY_8:
+	case UI_ACTION_KEY_9:
+		screen_fm_vfo_entry_digit(screen, action - UI_ACTION_KEY_0);
+		break;
+	case UI_ACTION_KEY_STAR:
+		screen_fm_vfo_entry_backspace(screen);
 		break;
 	default:
 		break;
@@ -266,13 +283,17 @@ static void dispatch_action(ui_action_t action)
 {
 	switch (action) {
 	case UI_ACTION_BACK:
-		/* Priority: quick-menu overlay > tabview row level > leave the frame;
-		 * each check only fires if the one above it doesn't apply. */
+		/* Priority: quick-menu overlay > tabview row level > in-progress digit
+		 * entry > leave the frame; each check only fires if the one above it
+		 * doesn't apply. */
 		if (overlay_quickmenu_is_active()) {
 			overlay_quickmenu_hide();
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS &&
 			   screen_settings_in_rows_level()) {
 			screen_settings_exit_rows_level();
+		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_FM_VFO &&
+			   fm_vfo_controller_entry_active()) {
+			screen_fm_vfo_entry_cancel(s_frame_obj[SCREEN_FM_VFO]);
 		} else {
 			app_pop_screen();
 		}
@@ -290,6 +311,17 @@ static void dispatch_action(ui_action_t action)
 	case UI_ACTION_DOWN:
 	case UI_ACTION_ENCODER_CW:
 	case UI_ACTION_ENCODER_CCW:
+	case UI_ACTION_KEY_0:
+	case UI_ACTION_KEY_1:
+	case UI_ACTION_KEY_2:
+	case UI_ACTION_KEY_3:
+	case UI_ACTION_KEY_4:
+	case UI_ACTION_KEY_5:
+	case UI_ACTION_KEY_6:
+	case UI_ACTION_KEY_7:
+	case UI_ACTION_KEY_8:
+	case UI_ACTION_KEY_9:
+	case UI_ACTION_KEY_STAR:
 		if (s_frame_top >= 0) {
 			screen_id_t id = s_frame_stack[s_frame_top];
 
@@ -308,17 +340,6 @@ static void dispatch_action(ui_action_t action)
 		overlay_quickmenu_show();
 		break;
 	case UI_ACTION_SK2:
-	case UI_ACTION_KEY_0:
-	case UI_ACTION_KEY_1:
-	case UI_ACTION_KEY_2:
-	case UI_ACTION_KEY_3:
-	case UI_ACTION_KEY_4:
-	case UI_ACTION_KEY_5:
-	case UI_ACTION_KEY_6:
-	case UI_ACTION_KEY_7:
-	case UI_ACTION_KEY_8:
-	case UI_ACTION_KEY_9:
-	case UI_ACTION_KEY_STAR:
 	case UI_ACTION_KEY_POUND:
 		LOG_INF("action %d: not yet implemented", action);
 		break;

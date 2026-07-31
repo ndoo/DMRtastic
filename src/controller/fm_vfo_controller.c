@@ -34,6 +34,12 @@ static int64_t  s_last_step_uptime; /* k_uptime_get() at the most recent step/sw
 /* Hard tuning ceiling for both VFOs, from codeplug_get_device_info(); assumes VHF < UHF. */
 static uint32_t s_vhf_min_hz, s_vhf_max_hz, s_uhf_min_hz, s_uhf_max_hz;
 
+/* Direct-frequency digit entry -- a separate scratch buffer from s_vfo[], only applied to
+ * the active VFO on a full, in-band 8-digit commit. s_entry_index == 0 means no entry is
+ * in progress. */
+static uint8_t s_entry_digits[FM_VFO_ENTRY_DIGITS_MAX];
+static uint8_t s_entry_index;
+
 /** Clamps to the VHF/UHF hard limits and, if a step would leave the current band, jumps
  * straight to the near edge of the other band instead of drifting through the VHF/UHF
  * dead-air gap one increment at a time. */
@@ -193,4 +199,74 @@ void fm_vfo_controller_set_current_vfo(int vfo_ab)
 	s_current_vfo = (uint8_t)vfo_ab;
 	s_retune_pending = true;
 	s_last_step_uptime = k_uptime_get();
+}
+
+static bool freq_in_band(uint32_t hz)
+{
+	return (hz >= s_vhf_min_hz && hz <= s_vhf_max_hz) ||
+	       (hz >= s_uhf_min_hz && hz <= s_uhf_max_hz);
+}
+
+bool fm_vfo_controller_entry_active(void)
+{
+	return s_entry_index > 0;
+}
+
+int fm_vfo_controller_entry_digit_count(void)
+{
+	return s_entry_index;
+}
+
+uint8_t fm_vfo_controller_entry_get_digit(int pos)
+{
+	return (pos >= 0 && pos < s_entry_index) ? s_entry_digits[pos] : 0;
+}
+
+void fm_vfo_controller_entry_digit(int digit)
+{
+	if (digit < 0 || digit > 9 || s_entry_index >= FM_VFO_ENTRY_DIGITS_MAX) {
+		return;
+	}
+	/* Reject a leading 0 -- this radio doesn't tune below 100 MHz. */
+	if (s_entry_index == 0 && digit == 0) {
+		return;
+	}
+
+	s_entry_digits[s_entry_index++] = (uint8_t)digit;
+
+	if (s_entry_index < FM_VFO_ENTRY_DIGITS_MAX) {
+		return;
+	}
+
+	/* Full entry -- digits are 3 MHz + 5 sub-MHz digits, i.e. the frequency in 10 Hz units. */
+	uint32_t value = 0;
+
+	for (int i = 0; i < FM_VFO_ENTRY_DIGITS_MAX; i++) {
+		value = value * 10 + s_entry_digits[i];
+	}
+
+	uint32_t candidate_hz = value * 10;
+
+	if (freq_in_band(candidate_hz)) {
+		s_vfo[s_current_vfo].rxFreq = candidate_hz;
+		s_retune_pending = true;
+		s_last_step_uptime = k_uptime_get();
+		s_entry_index = 0;
+	} else {
+		/* Out of band -- back out just the last digit for a retry, rather than
+		 * clamping or discarding the whole entry. */
+		s_entry_index--;
+	}
+}
+
+void fm_vfo_controller_entry_backspace(void)
+{
+	if (s_entry_index > 0) {
+		s_entry_index--;
+	}
+}
+
+void fm_vfo_controller_entry_cancel(void)
+{
+	s_entry_index = 0;
 }

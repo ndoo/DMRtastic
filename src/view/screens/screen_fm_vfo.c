@@ -16,8 +16,9 @@ typedef struct {
 	lv_obj_t *rssi_bar;
 	lv_obj_t *bw_label;
 	lv_obj_t *sq_open_label;
-	uint32_t  shown_freq_hz; /* value currently painted, for change-detection only */
+	uint32_t  shown_freq_hz;     /* value currently painted, for change-detection only */
 	uint8_t   shown_rssi;
+	bool      shown_entry_active; /* whether the last paint was a digit-entry buffer */
 } fm_vfo_data_t;
 
 static void fmt_freq(char *buf, size_t len, uint32_t hz)
@@ -26,6 +27,30 @@ static void fmt_freq(char *buf, size_t len, uint32_t hz)
 	uint32_t frac = (hz % 1000000U) / 10U; /* 5 digits: 100 kHz down to 10 Hz */
 
 	snprintf(buf, len, "%3" PRIu32 ".%05" PRIu32 " MHz", mhz, frac);
+}
+
+/** Renders the in-progress digit-entry buffer, unfilled positions shown as '-' -- same
+ * 3-digit-MHz + 5-digit-sub-MHz split as fmt_freq(). */
+static void fmt_entry(char *buf, size_t len, int digit_count)
+{
+	char mhz[4], frac[6];
+
+	for (int i = 0; i < 3; i++) {
+		mhz[i] = (i < digit_count) ? (char)('0' + fm_vfo_controller_entry_get_digit(i))
+					   : '-';
+	}
+	mhz[3] = '\0';
+
+	for (int i = 0; i < 5; i++) {
+		int pos = 3 + i;
+
+		frac[i] = (pos < digit_count)
+				  ? (char)('0' + fm_vfo_controller_entry_get_digit(pos))
+				  : '-';
+	}
+	frac[5] = '\0';
+
+	snprintf(buf, len, "%s.%s MHz", mhz, frac);
 }
 
 /** Builds the FM VFO screen's widgets and populates the initial frequency from the controller. */
@@ -39,8 +64,9 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 
 	fm_vfo_data_t *d = lv_malloc(sizeof(*d));
 	__ASSERT_NO_MSG(d != NULL);
-	d->shown_freq_hz = 0;
-	d->shown_rssi    = 0xFF;
+	d->shown_freq_hz     = 0;
+	d->shown_rssi        = 0xFF;
+	d->shown_entry_active = false;
 	lv_obj_set_user_data(scr, d);
 
 	/* Frequency display — large, top-centre */
@@ -99,14 +125,32 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 		lv_bar_set_value(d->rssi_bar, rssi, LV_ANIM_OFF);
 	}
 
-	uint32_t freq_hz = fm_vfo_controller_get_frequency_hz();
+	bool entry_active = fm_vfo_controller_entry_active();
 
-	if (freq_hz != d->shown_freq_hz) {
+	if (entry_active) {
 		char buf[24];
 
-		d->shown_freq_hz = freq_hz;
-		fmt_freq(buf, sizeof(buf), freq_hz);
+		fmt_entry(buf, sizeof(buf), fm_vfo_controller_entry_digit_count());
 		lv_label_set_text(d->freq_label, buf);
+		d->shown_entry_active = true;
+	} else {
+		uint32_t freq_hz = fm_vfo_controller_get_frequency_hz();
+
+		/* Force a repaint on the first inactive tick after an entry just
+		 * ended (committed or cancelled), even if the frequency itself
+		 * didn't change (e.g. a cancelled entry). */
+		if (d->shown_entry_active) {
+			d->shown_freq_hz = ~freq_hz;
+		}
+		d->shown_entry_active = false;
+
+		if (freq_hz != d->shown_freq_hz) {
+			char buf[24];
+
+			d->shown_freq_hz = freq_hz;
+			fmt_freq(buf, sizeof(buf), freq_hz);
+			lv_label_set_text(d->freq_label, buf);
+		}
 	}
 
 	bool sq_open = fm_vfo_controller_get_squelch_open();
@@ -124,4 +168,25 @@ void screen_fm_vfo_step(lv_obj_t *screen, bool up)
 {
 	(void)screen; /* controller state is a static singleton -- only one VFO screen exists */
 	fm_vfo_controller_step(up);
+}
+
+/** Forwards a digit-entry keypress to the controller; see fm_vfo_controller_entry_digit(). */
+void screen_fm_vfo_entry_digit(lv_obj_t *screen, int digit)
+{
+	(void)screen;
+	fm_vfo_controller_entry_digit(digit);
+}
+
+/** Forwards a backspace to the controller; see fm_vfo_controller_entry_backspace(). */
+void screen_fm_vfo_entry_backspace(lv_obj_t *screen)
+{
+	(void)screen;
+	fm_vfo_controller_entry_backspace();
+}
+
+/** Forwards an entry-cancel to the controller; see fm_vfo_controller_entry_cancel(). */
+void screen_fm_vfo_entry_cancel(lv_obj_t *screen)
+{
+	(void)screen;
+	fm_vfo_controller_entry_cancel();
 }
