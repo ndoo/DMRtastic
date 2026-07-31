@@ -6,6 +6,7 @@
 #include "../theme.h"
 #include "app.h"
 #include "controller/fm_vfo_controller.h"
+#include "model/radio_settings.h"
 
 #include <zephyr/kernel.h>
 #include <lvgl.h>
@@ -162,6 +163,9 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 				    sq_open ? theme_colors()->status_success
 					    : theme_colors()->surface_alt,
 				    LV_PART_MAIN);
+
+	lv_label_set_text(d->bw_label,
+			  settings_get_bandwidth_is_25k() ? "25K" : "12.5K");
 
 	status_bar_set_mode(fm_vfo_controller_get_current_vfo() == 0 ? "FM A" : "FM B");
 }
