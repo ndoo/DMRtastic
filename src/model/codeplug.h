@@ -56,6 +56,10 @@ struct cp_channel {
 	uint8_t sql;
 }; /* 56 bytes on flash, no padding */
 
+/* chFlag4 bit 0x02 -- channel bandwidth, set = 25 kHz, clear = 12.5 kHz (confirmed
+ * against a reference channel-flag table for this codeplug format). */
+#define CP_CHANNEL_FLAG4_BW_25K 0x02
+
 struct cp_contact {
 	char name[16];
 	uint32_t tgNumber;

@@ -10,6 +10,7 @@
 #include "console_transport.h"
 
 #include "controller/fm_vfo_controller.h"
+#include "controller/channel_controller.h"
 #include "controller/settings_controller.h"
 #include "model/radio_settings.h"
 
@@ -30,6 +31,42 @@ static void cmd_status(char *args)
 				  (unsigned long)(freq_hz % 1000000U),
 				  fm_vfo_controller_get_rssi(),
 				  fm_vfo_controller_get_squelch_open() ? "open" : "closed");
+}
+
+/** "channel [next|prev]" — steps (applying to radio_state) then prints channel_controller's
+ * current channel, same fields screen_fm_channel.c will eventually paint (Milestone 3b). */
+static void cmd_channel(char *args)
+{
+	char *sub = strtok(args, " \t");
+
+	if (sub && strcmp(sub, "next") == 0) {
+		channel_controller_step(true);
+	} else if (sub && strcmp(sub, "prev") == 0) {
+		channel_controller_step(false);
+	} else if (sub) {
+		console_transport_puts("ERR: channel [next|prev]\r\n");
+		return;
+	}
+
+	struct cp_channel ch;
+
+	if (!channel_controller_get_current(&ch)) {
+		console_transport_puts("no in-use channel\r\n");
+		return;
+	}
+
+	char rx_css_buf[12], tx_css_buf[12];
+
+	console_transport_printf(
+		"ch=%d name=%.16s rx=%lu.%05lu MHz tx=%lu.%05lu MHz bw=%s pwr=%u\r\n",
+		channel_controller_get_current_index(), ch.name,
+		(unsigned long)(ch.rxFreq / 1000000U), (unsigned long)(ch.rxFreq % 1000000U),
+		(unsigned long)(ch.txFreq / 1000000U), (unsigned long)(ch.txFreq % 1000000U),
+		(ch.chFlag4 & CP_CHANNEL_FLAG4_BW_25K) ? "25K" : "12.5K", ch.power);
+	console_transport_printf(
+		"rxTone=%s txTone=%s\r\n",
+		console_format_css(codeplug_decode_css(ch.rxTone), rx_css_buf, sizeof(rx_css_buf)),
+		console_format_css(codeplug_decode_css(ch.txTone), tx_css_buf, sizeof(tx_css_buf)));
 }
 
 /** Prints one menu_item_t table with a "group.Label = value" line per row. */
@@ -177,6 +214,7 @@ static void cmd_css(char *args)
 
 const struct console_cmd console_view_cmds[] = {
 	{ "status",   "current VFO/frequency/RSSI/squelch", cmd_status },
+	{ "channel",  "[next|prev] -- current/step FM channel", cmd_channel },
 	{ "settings", "list | set radio|display <label> up|down", cmd_settings },
 	{ "css",      "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css },
 };

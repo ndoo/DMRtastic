@@ -16,6 +16,7 @@
 #include "view/screens/screen_settings.h"
 #include "controller/settings_controller.h"
 #include "controller/fm_vfo_controller.h"
+#include "controller/channel_controller.h"
 
 #include "model/battery.h"
 #include "model/radio_settings.h"
@@ -399,6 +400,11 @@ void app_init(void)
 	/* Seeds VFO A/B from the codeplug -- before the first frame paints, same reasoning
 	 * as settings_controller_init() above. */
 	fm_vfo_controller_init();
+
+	/* Caches the first in-use codeplug channel for the console's "channel" command and the
+	 * future FM Channel screen (Milestone 3b) -- doesn't touch the radio, see
+	 * channel_controller_init()'s own doc comment for why. */
+	channel_controller_init();
 
 	/* Overlays — created once, parented to lv_layer_top() */
 	overlay_volume_create();
