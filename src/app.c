@@ -195,31 +195,39 @@ static lv_obj_t *s_content;
  * while something with group members is on top.
  */
 
-static lv_group_t *s_input_group;
+static lv_group_t *s_input_group; /* quick-menu's group; Settings owns its own per-level groups */
 static lv_indev_t *s_keypad_indev;
-static bool s_indev_group_attached;
+static lv_group_t *s_attached_group; /* whichever group the keypad indev currently points at,
+				      * NULL if none (mirrors the indev's own state so
+				      * update_indev_group_attachment() can no-op when unchanged)
+				      */
 
-/** Attaches the shared input group to the keypad indev only while Settings or the quick-menu is on
- * top.
+/** Attaches whichever group is relevant to the keypad indev: the quick-menu's group while it's
+ * open, else Settings' currently-active level group while Settings is on top, else NULL.
  */
 static void update_indev_group_attachment(void)
 {
-	bool need_group = (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS) ||
-			  overlay_quickmenu_is_active();
+	lv_group_t *target = NULL;
 
-	if (need_group == s_indev_group_attached) {
+	if (overlay_quickmenu_is_active()) {
+		target = s_input_group;
+	} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS) {
+		target = screen_settings_get_active_group();
+	}
+
+	if (target == s_attached_group) {
 		return;
 	}
 
-	lv_indev_set_group(s_keypad_indev, need_group ? s_input_group : NULL);
-	if (need_group) {
+	lv_indev_set_group(s_keypad_indev, target);
+	if (target) {
 		/* The OK press that opened this screen may still be mid-air (queued PRESS, no
 		 * RELEASE yet) -- without this, LVGL fires a stray RELEASE on whatever's now
 		 * focused, descending into tab content instead of the tab bar.
 		 */
 		lv_indev_wait_release(s_keypad_indev);
 	}
-	s_indev_group_attached = need_group;
+	s_attached_group = target;
 }
 
 /* ---------- Event queue (RTOS → LVGL thread boundary) ------------------- */

@@ -32,8 +32,13 @@ void screen_settings_handle_action(lv_obj_t *screen, ui_action_t action);
 /** True once Green has descended into a tab's row list. */
 bool screen_settings_in_rows_level(void);
 
-/** Ascends to the tab level: restores tab-button group membership and focus. No-op if already
- * there.
+/** Reports which lv_group_t should currently be attached to the keypad indev -- queried every
+ * tick by app.c's update_indev_group_attachment().
+ */
+lv_group_t *screen_settings_get_active_group(void);
+
+/** Ascends to the tab level: clears the outgoing level's stale focus highlight and focuses the
+ * active tab's button. No-op if already there.
  */
 void screen_settings_exit_rows_level(void);
 
