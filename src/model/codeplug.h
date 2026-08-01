@@ -64,6 +64,12 @@ struct cp_channel {
  */
 #define CP_CHANNEL_FLAG4_BW_25K 0x02
 
+/* chFlag4 bit 0x20 -- set means "skip this channel when scanning the zone it's a member of"
+ * (a separate bit, 0x10, means skip in the flat All-Channels listing instead -- this firmware
+ * has no All-Channels virtual zone yet, so only the zone-scan bit applies to anything today).
+ */
+#define CP_CHANNEL_FLAG4_ZONE_SKIP 0x20
+
 struct cp_contact {
 	char name[16];
 	uint32_t tgNumber;

@@ -6,6 +6,7 @@
 #include "../theme.h"
 #include "app.h"
 #include "controller/channel_controller.h"
+#include "controller/scan_controller.h"
 #include "model/codeplug.h"
 
 #include <zephyr/kernel.h>
@@ -108,6 +109,13 @@ void screen_fm_channel_destroy(lv_obj_t *screen)
 void screen_fm_channel_update(lv_obj_t *screen)
 {
 	fm_channel_data_t *d = lv_obj_get_user_data(screen);
+
+	/* scan_controller only progresses while this screen's update() is running -- see
+	 * scan_controller.h's top comment for why it isn't ticked from app.c's
+	 * screen-agnostic 200 ms timer instead. May step channel_controller to a new
+	 * channel, which the index check below picks up same as a manual step.
+	 */
+	scan_controller_tick();
 
 	/* Unconditional, like screen_fm_vfo_update()'s own trailing status_bar_set_mode()
 	 * call -- must run even when index hasn't changed (e.g. just switched onto this

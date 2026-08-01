@@ -13,6 +13,7 @@
 
 #include "controller/fm_vfo_controller.h"
 #include "controller/channel_controller.h"
+#include "controller/scan_controller.h"
 #include "controller/zone_controller.h"
 #include "controller/settings_controller.h"
 #include "model/radio_settings.h"
@@ -272,11 +273,67 @@ static void cmd_css(char *args)
 	console_transport_printf("%s: OK\r\n", console_format_css(css, buf, sizeof(buf)));
 }
 
+/** "scan on [up|down]" / "scan off" / "scan tick" / "scan" (bare status) -- FM channel scan
+ * (Milestone 5a). "tick" manually drives one scan_controller_tick() poll for scripted testing
+ * when the FM Channel screen isn't the visible frame -- see scan_controller.h's top comment for
+ * why scanning otherwise only progresses while that screen is topmost.
+ */
+static void cmd_scan(char *args)
+{
+	char *sub = strtok(args, " \t");
+
+	if (sub && strcmp(sub, "on") == 0) {
+		char *dir = strtok(NULL, " \t");
+
+		if (dir && strcmp(dir, "down") == 0) {
+			scan_controller_start(false);
+		} else if (!dir || strcmp(dir, "up") == 0) {
+			scan_controller_start(true);
+		} else {
+			console_transport_puts("ERR: scan on [up|down]\r\n");
+			return;
+		}
+	} else if (sub && strcmp(sub, "off") == 0) {
+		scan_controller_stop();
+	} else if (sub && strcmp(sub, "tick") == 0) {
+		scan_controller_tick();
+	} else if (sub) {
+		console_transport_puts("ERR: scan [on [up|down]|off|tick]\r\n");
+		return;
+	}
+
+	const char *state_str;
+
+	switch (scan_controller_get_state()) {
+	case SCAN_STATE_SCANNING:
+		state_str = "scanning";
+		break;
+	case SCAN_STATE_PAUSED:
+		state_str = "paused";
+		break;
+	default:
+		state_str = "idle";
+		break;
+	}
+
+	struct cp_channel ch;
+
+	if (!channel_controller_get_current(&ch)) {
+		console_transport_printf("scan=%s (no in-use channel)\r\n", state_str);
+		return;
+	}
+	console_transport_printf("scan=%s ch=%d name=%.16s rx=%lu.%05lu MHz\r\n", state_str,
+				 channel_controller_get_current_index(), ch.name,
+				 (unsigned long)(ch.rxFreq / 1000000U),
+				 (unsigned long)(ch.rxFreq % 1000000U));
+}
+
 const struct console_cmd console_view_cmds[] = {
 	{"status", "current VFO/frequency/RSSI/squelch", cmd_status},
 	{"channel", "[next|prev|zone on|off] -- current/step FM channel, zone-scope toggle",
 	 cmd_channel},
 	{"zone", "[next|prev] -- current/step zone + its channel membership", cmd_zone},
+	{"scan", "[on [up|down]|off|tick] -- FM channel scan status/control", cmd_scan},
 	{"settings", "list | set radio|display <label> up|down", cmd_settings},
 	{"css", "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css},
 };
