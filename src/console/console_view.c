@@ -13,6 +13,7 @@
 
 #include "controller/fm_vfo_controller.h"
 #include "controller/channel_controller.h"
+#include "controller/zone_controller.h"
 #include "controller/settings_controller.h"
 #include "model/radio_settings.h"
 
@@ -69,6 +70,36 @@ static void cmd_channel(char *args)
 		"rxTone=%s txTone=%s\r\n",
 		console_format_css(codeplug_decode_css(ch.rxTone), rx_css_buf, sizeof(rx_css_buf)),
 		console_format_css(codeplug_decode_css(ch.txTone), tx_css_buf, sizeof(tx_css_buf)));
+}
+
+/** "zone [next|prev]" — steps (no channel/radio interaction yet, Milestone 4b) then prints
+ * zone_controller's current zone, same fields the future Zones screen (Milestone 4c) will
+ * eventually paint.
+ */
+static void cmd_zone(char *args)
+{
+	char *sub = strtok(args, " \t");
+
+	if (sub && strcmp(sub, "next") == 0) {
+		zone_controller_step(true);
+	} else if (sub && strcmp(sub, "prev") == 0) {
+		zone_controller_step(false);
+	} else if (sub) {
+		console_transport_puts("ERR: zone [next|prev]\r\n");
+		return;
+	}
+
+	struct cp_zone z;
+	int channels_per_zone;
+
+	if (!zone_controller_get_current(&z, &channels_per_zone)) {
+		console_transport_puts("no in-use zone\r\n");
+		return;
+	}
+
+	console_transport_printf("slot=%d count=%d name=%.16s channels_per_zone=%d\r\n",
+				 zone_controller_get_current_slot(), zone_controller_get_count(),
+				 z.name, channels_per_zone);
 }
 
 /** Prints one menu_item_t table with a "group.Label = value" line per row. */
@@ -222,6 +253,7 @@ static void cmd_css(char *args)
 const struct console_cmd console_view_cmds[] = {
 	{"status", "current VFO/frequency/RSSI/squelch", cmd_status},
 	{"channel", "[next|prev] -- current/step FM channel", cmd_channel},
+	{"zone", "[next|prev] -- current/step zone", cmd_zone},
 	{"settings", "list | set radio|display <label> up|down", cmd_settings},
 	{"css", "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css},
 };

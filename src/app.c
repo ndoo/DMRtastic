@@ -18,6 +18,7 @@
 #include "controller/settings_controller.h"
 #include "controller/fm_vfo_controller.h"
 #include "controller/channel_controller.h"
+#include "controller/zone_controller.h"
 
 #include "model/battery.h"
 #include "model/radio_settings.h"
@@ -482,6 +483,12 @@ void app_init(void)
 	 * channel_controller_init()'s own doc comment for why.
 	 */
 	channel_controller_init();
+
+	/* Caches the zone in-use bitmap and the first in-use zone for the console's "zone"
+	 * command and the future Zones screen (Milestone 4c) -- read-only navigation, no radio
+	 * or channel_controller interaction yet (Milestone 4b).
+	 */
+	zone_controller_init();
 
 	/* Overlays — created once, parented to lv_layer_top() */
 	overlay_volume_create();
