@@ -1,0 +1,60 @@
+# This file controls the behavior of Trunk: https://docs.trunk.io/cli
+# To learn more about the format of this file, see https://docs.trunk.io/reference/trunk-yaml
+version: 0.1
+cli:
+  version: 1.25.0
+# Trunk provides extensibility via plugins. (https://docs.trunk.io/plugins)
+plugins:
+  sources:
+    - id: trunk
+      ref: v1.10.2
+      uri: https://github.com/trunk-io/plugins
+# Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
+runtimes:
+  enabled:
+    - node@22.16.0
+    - python@3.14.4
+# This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
+lint:
+  # Custom file type for devicetree sources, so the vendored-Zephyr checkpatch
+  # linter below can be scoped to them alongside .c/.h.
+  files:
+    - name: devicetree
+      extensions:
+        - dts
+        - dtsi
+        - overlay
+  definitions:
+    # Runs Zephyr's own checkpatch.pl (vendored verbatim in tools/lint/, see
+    # its header comment) against C/H and devicetree sources -- the same
+    # style checker Zephyr's own CI runs, so findings here match what
+    # upstream review would flag. Useful since drivers/ is a candidate for
+    # upstreaming.
+    - name: checkpatch
+      files: [c-source, c-header, devicetree]
+      commands:
+        - name: lint
+          run: perl ${workspace}/tools/lint/checkpatch.pl --no-tree --file --quiet --no-summary --emacs --show-types ${target}
+          output: regex
+          parse_regex: '(?P<path>[^:\n]+):(?P<line>\d+): (?P<severity>ERROR|WARNING|CHECK):(?P<code>[A-Z0-9_]+): (?P<message>[^\n]+)'
+          success_codes: [0, 1]
+          read_output_from: stdout
+  enabled:
+    - checkpatch@SYSTEM
+    - clang-format@16.0.3
+    - cmake-format@0.6.13
+    - bandit@1.9.4
+    - black@26.5.1
+    - checkov@3.3.8
+    - git-diff-check
+    - isort@8.0.1
+    - markdownlint@0.49.1
+    - prettier@3.9.6
+    - ruff@0.16.1
+    - trufflehog@3.96.0
+    - yamllint@1.38.0
+actions:
+  enabled:
+    - trunk-fmt-pre-commit
+    - trunk-check-pre-push
+    - trunk-upgrade-available

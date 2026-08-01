@@ -1,0 +1,33 @@
+# Vendored from Zephyr 4.4.0's .ruff.toml (framework-zephyr, matching the
+# `platform = ststm32@19.6.0` pin in platformio.ini), minus the `extend`
+# line pulling in Zephyr's own .ruff-excludes.toml -- that file is 1138
+# lines of per-file-ignores for paths inside the Zephyr tree itself and none
+# apply here. Refresh from
+# ~/.platformio/packages/framework-zephyr/.ruff.toml if that pin changes.
+
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = [
+    "B",      # flake8-bugbear
+    "E",      # pycodestyle
+    "F",      # pyflakes
+    "I",      # isort
+    "SIM",    # flake8-simplify
+    "UP",     # pyupgrade
+    "W",      # pycodestyle warnings
+]
+
+ignore = [
+    "SIM108", # Allow if-else blocks instead of forcing ternary operator
+]
+
+[lint.per-file-ignores]
+# PlatformIO injects `Import`/`env` as SCons globals when it runs
+# extra_scripts, so they're undefined from ruff's static view.
+"tools/install_upload_deps.py" = ["F821"]
+
+[format]
+quote-style = "preserve"
+line-ending = "lf"
