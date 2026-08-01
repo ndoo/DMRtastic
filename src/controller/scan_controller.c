@@ -172,6 +172,15 @@ void scan_controller_stop(void)
 	s_target = SCAN_TARGET_NONE;
 }
 
+void scan_controller_reverse_direction(void)
+{
+	if (s_state == SCAN_STATE_IDLE) {
+		return;
+	}
+
+	s_up = !s_up;
+}
+
 enum scan_state scan_controller_get_state(void)
 {
 	return s_state;

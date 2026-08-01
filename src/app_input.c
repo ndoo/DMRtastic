@@ -32,6 +32,15 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 static int64_t s_sk1_press_uptime;
 
+/* Milestone 5c: long-press of the physical Up arrow starts scanning (same threshold as SK1's own
+ * long-press, reused rather than duplicated), provided SK2 isn't held -- SK2+Up is reserved for a
+ * future backlight gesture and must not also start a scan.
+ */
+#define SCAN_START_LONG_PRESS_MS SK1_LONG_PRESS_MS
+
+static int64_t s_up_press_uptime;
+static bool s_sk2_held;
+
 /* Volume pot hysteresis: reports a new raw reading only once it moves far enough from the last
  * applied one, with a direction-aware exception so the range extremes stay reachable. See README
  * for the full rationale.
@@ -103,7 +112,11 @@ static void handle_key_event(const struct input_event *evt)
 		return;
 	case INPUT_KEY_UP:
 		if (pressed) {
+			s_up_press_uptime = k_uptime_get();
 			app_post_action(UI_ACTION_UP);
+		} else if (!s_sk2_held &&
+			   k_uptime_get() - s_up_press_uptime >= SCAN_START_LONG_PRESS_MS) {
+			app_post_action(UI_ACTION_SCAN_START);
 		}
 		return;
 	case INPUT_KEY_DOWN:
@@ -117,6 +130,7 @@ static void handle_key_event(const struct input_event *evt)
 		}
 		return;
 	case DMRTASTIC_KEY_SK2:
+		s_sk2_held = pressed;
 		if (pressed) {
 			app_post_action(UI_ACTION_SK2);
 		}

@@ -52,6 +52,7 @@ typedef enum {
 	UI_ACTION_SK1,         /* side key 1 (long-press = quick menu)  */
 	UI_ACTION_PTT_RELEASE, /* push-to-talk released                 */
 	UI_ACTION_SK2,         /* side key 2 — no behavior defined yet  */
+	UI_ACTION_SCAN_START, /* long-press of the physical Up arrow, SK2 not held (Milestone 5c) */
 	UI_ACTION_KEY_0,
 	UI_ACTION_KEY_1,
 	UI_ACTION_KEY_2,

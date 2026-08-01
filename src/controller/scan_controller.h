@@ -83,6 +83,15 @@ void scan_controller_start_vfo(bool up);
  */
 void scan_controller_stop(void);
 
+/** Reverses the direction of whichever scan is currently active (channel or VFO) -- confirmed
+ * from both uiChannelMode.c's and uiVFOMode.c's handleEvent(): each has its own KEY_FRONT_DOWN
+ * reversal check that tests ev->keys.key directly, with no KEYCHECK_LONGDOWN guard, at the very
+ * top of the function ahead of that function's own "stop the scan on any other key" block -- so
+ * it fires on any Down press while either scan is running, not just a held one, and pre-empts
+ * the stop-on-any-key path for that key specifically. A no-op while idle.
+ */
+void scan_controller_reverse_direction(void);
+
 /** Current scan state -- SCAN_STATE_IDLE when not scanning, regardless of which mode was last
  * active.
  */

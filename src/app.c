@@ -20,6 +20,7 @@
 #include "controller/fm_vfo_controller.h"
 #include "controller/channel_controller.h"
 #include "controller/zone_controller.h"
+#include "controller/scan_controller.h"
 
 #include "model/battery.h"
 #include "model/radio_settings.h"
@@ -79,6 +80,9 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 	case UI_ACTION_KEY_STAR:
 		screen_fm_vfo_entry_backspace(screen);
 		break;
+	case UI_ACTION_SCAN_START:
+		scan_controller_start_vfo(true);
+		break;
 	default:
 		break;
 	}
@@ -119,6 +123,9 @@ static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
 	case UI_ACTION_KEY_8:
 	case UI_ACTION_KEY_9:
 		screen_fm_channel_entry_digit(screen, action - UI_ACTION_KEY_0);
+		break;
+	case UI_ACTION_SCAN_START:
+		scan_controller_start(true);
 		break;
 	default:
 		break;
@@ -369,9 +376,49 @@ static void apply_volume(uint16_t raw)
 	app_overlay_volume_show(volume_display_pct(raw));
 }
 
+/** Milestone 5c: "any key interrupts" scan gating, matching OpenGD77's own scanStop()-on-any-key
+ * behavior (uiChannelMode.c/uiVFOMode.c handleEvent()) -- checked before every other action
+ * effect below, since it must pre-empt frame-handler dispatch, the quick menu, and Back's own
+ * branching alike. Up (long-press already having started the scan, or a plain short-press) and
+ * SK2 alone are the two exceptions that must not stop it, per the reference; every other action
+ * is fully consumed here instead of also performing its normal effect, same as the reference's
+ * own scanStop()+keyboardReset()+return. Down is a third exception, folded in as a 5c follow-up:
+ * both uiChannelMode.c and uiVFOMode.c's handleEvent() reverse an active scan's direction on any
+ * Down press instead of stopping it (checked right at the top of each function, before either
+ * one's own separate "stop the scan on any other key" block further down -- confirmed
+ * symmetric between the two screens after initially missing uiVFOMode.c's copy of this block on
+ * a first read and wrongly concluding VFO mode only ever stopped). Returns true if action was
+ * consumed by this gate.
+ */
+static bool scan_intercept_action(ui_action_t action)
+{
+	if (scan_controller_get_state() == SCAN_STATE_IDLE) {
+		return false;
+	}
+
+	switch (action) {
+	case UI_ACTION_UP:
+	case UI_ACTION_SCAN_START:
+		/* Scan already owns stepping -- don't also forward to the frame handler. */
+		return true;
+	case UI_ACTION_SK2:
+		return false; /* falls through to its own case below, unaffected */
+	case UI_ACTION_DOWN:
+		scan_controller_reverse_direction();
+		return true;
+	default:
+		scan_controller_stop();
+		return true;
+	}
+}
+
 /** Routes a drained ui_action_t to the overlay, active frame, or global handler. */
 static void dispatch_action(ui_action_t action)
 {
+	if (scan_intercept_action(action)) {
+		return;
+	}
+
 	switch (action) {
 	case UI_ACTION_BACK:
 		/* Priority: quick-menu overlay > tabview row level > in-progress digit
@@ -426,6 +473,7 @@ static void dispatch_action(ui_action_t action)
 	case UI_ACTION_KEY_8:
 	case UI_ACTION_KEY_9:
 	case UI_ACTION_KEY_STAR:
+	case UI_ACTION_SCAN_START:
 		/* The quick-menu's own row nav/selection runs through the shared lv_group indev --
 		 * skip forwarding here too, or every press double-handles (e.g. Up/Down also steps
 		 * the VFO underneath).
