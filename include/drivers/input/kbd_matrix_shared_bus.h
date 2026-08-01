@@ -1,6 +1,6 @@
-/*
+/* SPDX-License-Identifier: Apache-2.0
+ *
  * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
- * SPDX-License-Identifier: Apache-2.0
  *
  * Public API for the "gpio-kbd-matrix-shared-bus" input driver
  * (drivers/kbd_matrix_shared_bus/): no interrupt or polling thread, so it

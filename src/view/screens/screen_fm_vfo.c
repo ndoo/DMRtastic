@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "screen_fm_vfo.h"
 #include "../status_bar.h"
@@ -18,21 +18,22 @@ typedef struct {
 	lv_obj_t *rssi_bar;
 	lv_obj_t *bw_label;
 	lv_obj_t *sq_open_label;
-	uint32_t  shown_freq_hz;     /* value currently painted, for change-detection only */
-	uint8_t   shown_rssi;
-	bool      shown_entry_active; /* whether the last paint was a digit-entry buffer */
+	uint32_t shown_freq_hz; /* value currently painted, for change-detection only */
+	uint8_t shown_rssi;
+	bool shown_entry_active; /* whether the last paint was a digit-entry buffer */
 } fm_vfo_data_t;
 
 static void fmt_freq(char *buf, size_t len, uint32_t hz)
 {
-	uint32_t mhz  = hz / 1000000U;
+	uint32_t mhz = hz / 1000000U;
 	uint32_t frac = (hz % 1000000U) / 10U; /* 5 digits: 100 kHz down to 10 Hz */
 
 	snprintf(buf, len, "%3" PRIu32 ".%05" PRIu32 " MHz", mhz, frac);
 }
 
 /** Renders the in-progress digit-entry buffer, unfilled positions shown as '-' -- same
- * 3-digit-MHz + 5-digit-sub-MHz split as fmt_freq(). */
+ * 3-digit-MHz + 5-digit-sub-MHz split as fmt_freq().
+ */
 static void fmt_entry(char *buf, size_t len, int digit_count)
 {
 	char mhz[4], frac[6];
@@ -46,9 +47,8 @@ static void fmt_entry(char *buf, size_t len, int digit_count)
 	for (int i = 0; i < 5; i++) {
 		int pos = 3 + i;
 
-		frac[i] = (pos < digit_count)
-				  ? (char)('0' + fm_vfo_controller_entry_get_digit(pos))
-				  : '-';
+		frac[i] = (pos < digit_count) ? (char)('0' + fm_vfo_controller_entry_get_digit(pos))
+					      : '-';
 	}
 	frac[5] = '\0';
 
@@ -66,8 +66,8 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 
 	fm_vfo_data_t *d = lv_malloc(sizeof(*d));
 	__ASSERT_NO_MSG(d != NULL);
-	d->shown_freq_hz     = 0;
-	d->shown_rssi        = 0xFF;
+	d->shown_freq_hz = 0;
+	d->shown_rssi = 0xFF;
 	d->shown_entry_active = false;
 	lv_obj_set_user_data(scr, d);
 
@@ -96,8 +96,7 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 	/* Squelch open/closed label — bottom-right */
 	d->sq_open_label = lv_label_create(scr);
 	lv_label_set_text(d->sq_open_label, "[ SQUELCH ]");
-	lv_obj_set_style_text_color(d->sq_open_label,
-				    theme_colors()->surface_alt, LV_PART_MAIN);
+	lv_obj_set_style_text_color(d->sq_open_label, theme_colors()->surface_alt, LV_PART_MAIN);
 	lv_obj_align(d->sq_open_label, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
 
 	/* Populate frequency from the controller */
@@ -140,7 +139,8 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 
 		/* Force a repaint on the first inactive tick after an entry just
 		 * ended (committed or cancelled), even if the frequency itself
-		 * didn't change (e.g. a cancelled entry). */
+		 * didn't change (e.g. a cancelled entry).
+		 */
 		if (d->shown_entry_active) {
 			d->shown_freq_hz = ~freq_hz;
 		}
@@ -157,15 +157,13 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 
 	bool sq_open = fm_vfo_controller_get_squelch_open();
 
-	lv_label_set_text(d->sq_open_label,
-			  sq_open ? "[ OPEN ]" : "[ SQUELCH ]");
+	lv_label_set_text(d->sq_open_label, sq_open ? "[ OPEN ]" : "[ SQUELCH ]");
 	lv_obj_set_style_text_color(d->sq_open_label,
 				    sq_open ? theme_colors()->status_success
 					    : theme_colors()->surface_alt,
 				    LV_PART_MAIN);
 
-	lv_label_set_text(d->bw_label,
-			  settings_get_bandwidth_is_25k() ? "25K" : "12.5K");
+	lv_label_set_text(d->bw_label, settings_get_bandwidth_is_25k() ? "25K" : "12.5K");
 
 	status_bar_set_mode(fm_vfo_controller_get_current_vfo() == 0 ? "FM A" : "FM B");
 }

@@ -1,5 +1,7 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ */
 
 /*
  * Public UI API — the only header other modules need to include.
@@ -14,25 +16,29 @@
 
 /* ---------- Screen IDs -------------------------------------------------- */
 
-/* Static top-level frames (meshtastic-device-ui convention), except SCREEN_BOOT which is a genuine one-shot transient.
- * Stub IDs reserve enum values; their ops entries have NULL create/update and log a warning if shown. */
+/* Static top-level frames (meshtastic-device-ui convention), except SCREEN_BOOT which is a genuine
+ * one-shot transient. Stub IDs reserve enum values; their ops entries have NULL create/update and
+ * log a warning if shown.
+ */
 typedef enum {
-	SCREEN_BOOT = 0,      /* splash — auto-advances to FM_VFO after 2 s   */
-	SCREEN_FM_VFO,        /* FM direct-frequency operating screen          */
-	SCREEN_SETTINGS,      /* Radio/Display/Info tabview (screen_settings.c)*/
+	SCREEN_BOOT = 0, /* splash — auto-advances to FM_VFO after 2 s   */
+	SCREEN_FM_VFO,   /* FM direct-frequency operating screen          */
+	SCREEN_SETTINGS, /* Radio/Display/Info tabview (screen_settings.c)*/
 	/* -- reserved stubs (not implemented yet) -- */
-	SCREEN_FM_CHANNEL,    /* FM channel mode (needs codeplug)              */
-	SCREEN_DMR_VFO,       /* DMR direct-frequency (needs HR-C6000 DMR)    */
-	SCREEN_DMR_CHANNEL,   /* DMR channel mode (needs codeplug + HR-C6000)  */
-	SCREEN_CONTACTS,      /* contact list (needs codeplug)                 */
-	SCREEN_ZONES,         /* zone list (needs codeplug)                    */
+	SCREEN_FM_CHANNEL,  /* FM channel mode (needs codeplug)              */
+	SCREEN_DMR_VFO,     /* DMR direct-frequency (needs HR-C6000 DMR)    */
+	SCREEN_DMR_CHANNEL, /* DMR channel mode (needs codeplug + HR-C6000)  */
+	SCREEN_CONTACTS,    /* contact list (needs codeplug)                 */
+	SCREEN_ZONES,       /* zone list (needs codeplug)                    */
 	SCREEN_COUNT
 } screen_id_t;
 
 /* ---------- Input actions ----------------------------------------------- */
 
 /* Device-agnostic action codes; app_input.c translates DTS zephyr,code values to these.
- * Up/Down/tab navigation is native LVGL group focus, not this enum; the encoder adjusts the focused setting via ENCODER_CW/CCW instead. */
+ * Up/Down/tab navigation is native LVGL group focus, not this enum; the encoder adjusts the focused
+ * setting via ENCODER_CW/CCW instead.
+ */
 typedef enum {
 	UI_ACTION_BACK,        /* leave the current frame (Red / Back key) */
 	UI_ACTION_UP,          /* non-widget-list use only (e.g. VFO step)  */
@@ -65,7 +71,9 @@ typedef enum {
 /** Called once from the LVGL thread before the timer loop starts. */
 void app_init(void);
 
-/** Called once per loop iteration before lv_timer_handler(); drains queued actions to the active screen. */
+/** Called once per loop iteration before lv_timer_handler(); drains queued actions to the active
+ * screen.
+ */
 void app_tick(void);
 
 /* ---------- Navigation -------------------------------------------------- */
@@ -87,14 +95,17 @@ void app_overlay_volume_show(uint8_t pct);
 /* Squelch/bandwidth/VFO-step/battery-unit state set via the Settings menu now lives in
  * radio_settings.h (settings_get_squelch_level(), settings_get_vfo_step_hz(),
  * settings_get_battery_unit_is_percent(), etc.) -- other screens should include that
- * header directly instead of going through app.h. */
+ * header directly instead of going through app.h.
+ */
 
 /* ---------- Input bridge ------------------------------------------------ */
 
 /** Safe to call from any thread context; never from hard-ISR. */
 void app_post_action(ui_action_t action);
 
-/** Posts an absolute volume-pot reading (raw, native ADC span); overwrite-latest. Safe from any thread, never hard-ISR. */
+/** Posts an absolute volume-pot reading (raw, native ADC span); overwrite-latest. Safe from any
+ * thread, never hard-ISR.
+ */
 void app_post_volume_abs(uint16_t raw);
 
 #endif /* DMRTASTIC_APP_H_ */

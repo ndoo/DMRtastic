@@ -1,7 +1,5 @@
-/*
- * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
- * SPDX-License-Identifier: MIT
- */
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 /dts-v1/;
 #include <st/f4/stm32f405Xg.dtsi>
@@ -14,7 +12,8 @@
 #include <zephyr/dt-bindings/pwm/pwm.h>
 
 /* Not yet in this Zephyr version's input-event-codes.h; matches Linux's KEY_NUMERIC_STAR/POUND,
- * guarded in case a future update adds them. */
+ * guarded in case a future update adds them.
+ */
 #ifndef INPUT_KEY_NUMERIC_STAR
 #define INPUT_KEY_NUMERIC_STAR  0x20a
 #endif
@@ -23,7 +22,8 @@
 #endif
 
 /* Calibrated ADC span, shared by vol_axis's in-min/max and out-min/max so it reports the native
- * value with no rescaling and the two can never drift apart. */
+ * value with no rescaling and the two can never drift apart.
+ */
 #define VOL_AXIS_ADC_MIN 24
 #define VOL_AXIS_ADC_MAX 1960
 
@@ -61,7 +61,8 @@
 	};
 
 	/* col-gpios (driven) and row-gpios (sensed) are the same 8 pins as lcd_mipi_dbi's data-gpios below;
-	 * kbd_matrix_shared_bus borrows them per scan (see that driver). Active-high, no pull -- a pull-up would source current onto the shared LCD lines. */
+	 * kbd_matrix_shared_bus borrows them per scan (see that driver). Active-high, no pull -- a pull-up would source current onto the shared LCD lines.
+	 */
 	keypad: keypad {
 		compatible = "gpio-kbd-matrix-shared-bus";
 		col-gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>,
@@ -77,7 +78,8 @@
 		            <&gpioe 10 GPIO_ACTIVE_HIGH>;
 
 		/* row/col below are input-keymap's own axes (INPUT_ABS_Y/X), not physical row/col: "row" (0-7) =
-		 * sensed/physical-column, "col" (0-2) = driven/physical-row -- confirmed against real hardware labels. */
+		 * sensed/physical-column, "col" (0-2) = driven/physical-row -- confirmed against real hardware labels.
+		 */
 		keymap {
 			compatible = "input-keymap";
 			row-size = <8>;
@@ -111,7 +113,8 @@
 	ptt_buttons: ptt_buttons {
 		compatible = "gpio-keys";
 		/* PE11 shares an EXTI line with the encoder's PB11 -- poll here so
-		 * the encoder gets the interrupt; PTT tolerates the latency. */
+		 * the encoder gets the interrupt; PTT tolerates the latency.
+		 */
 		polling-mode;
 		ptt: ptt {
 			gpios = <&gpioe 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
@@ -128,18 +131,21 @@
 		gpios = <&gpioe 14 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
 		        <&gpiob 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 		/* Real per-detent count is 2 edges (not 1 -- single clicks double-
-		 * stepped; not 4 -- single clicks were often dropped entirely). */
+		 * stepped; not 4 -- single clicks were often dropped entirely).
+		 */
 		steps-per-period = <2>;
 		/* Fast enough to not miss a quadrature edge on a quick flick. */
 		sample-time-us = <250>;
 		idle-timeout-ms = <200>;
 		/* No idle-poll-time-us: PTT (above) polls now, freeing this EXTI
-		 * line so the encoder can idle on a real GPIO interrupt instead. */
+		 * line so the encoder can idle on a real GPIO interrupt instead.
+		 */
 		zephyr,axis = <INPUT_REL_Y>;
 	};
 
 	/* Up/Down/Enter feed LVGL's group-focus nav directly (meshtastic-device-ui convention, one shared lv_group);
-	 * Back stays a cross-frame action in ui.c. The rotary encoder has no lv_group binding -- it always adjusts the focused setting instead (ui_input.c). */
+	 * Back stays a cross-frame action in ui.c. The rotary encoder has no lv_group binding -- it always adjusts the focused setting instead (ui_input.c).
+	 */
 	lvgl_keypad: lvgl-keypad-input {
 		compatible = "zephyr,lvgl-keypad-input";
 		input-codes = <INPUT_KEY_UP INPUT_KEY_DOWN INPUT_KEY_ENTER>;
@@ -153,10 +159,12 @@
 			io-channels = <&adc1 0>;
 			in-min  = <VOL_AXIS_ADC_MIN>;
 			/* Measured via CDC log capture (in-max temporarily uncapped to 4095): raw pct peaked at exactly
-			 * 48%, giving an ADC ceiling of ~1978 (24 + 0.48*4071); hysteresis (ui_input.c) clamps the rest to 100%. */
+			 * 48%, giving an ADC ceiling of ~1978 (24 + 0.48*4071); hysteresis (ui_input.c) clamps the rest to 100%.
+			 */
 			in-max  = <VOL_AXIS_ADC_MAX>;
 			/* out-min/max mirror in-min/max (same #define, can't drift) so the axis reports the native ADC
-			 * value unscaled -- every transform (taper LUT, linear scale) happens once in ui.c, not here. */
+			 * value unscaled -- every transform (taper LUT, linear scale) happens once in ui.c, not here.
+			 */
 			out-min = <VOL_AXIS_ADC_MIN>;
 			out-max = <VOL_AXIS_ADC_MAX>;
 			zephyr,axis = <INPUT_ABS_THROTTLE>;
@@ -177,7 +185,8 @@
 		dc-gpios    = <&gpiod 12 GPIO_ACTIVE_HIGH>;
 		reset-gpios = <&gpiod 13 GPIO_ACTIVE_LOW>;
 		/* WR is physically active-LOW (8080 write strobe); GPIO_ACTIVE_HIGH is correct here since
-		 * gpio_pin_set_dt(wr, 1) drives HIGH (latch) and (wr, 0) drives LOW (assert) -- ACTIVE_LOW would invert this and prevent any latch. */
+		 * gpio_pin_set_dt(wr, 1) drives HIGH (latch) and (wr, 0) drives LOW (assert) -- ACTIVE_LOW would invert this and prevent any latch.
+		 */
 		wr-gpios    = <&gpiod  5 GPIO_ACTIVE_HIGH>;
 		rd-gpios    = <&gpiod  4 GPIO_ACTIVE_HIGH>;
 		cs-gpios    = <&gpiod  6 GPIO_ACTIVE_LOW>;
@@ -201,14 +210,16 @@
 			height   = <128>;
 			rotation = <90>;
 			/* PC6 backlight, reused as TIM3_CH1 PWM (AF2) instead of a plain GPIO so Brightness can dim it.
-			 * st,prescaler (see &timers3) must divide 72 MHz to 1 MHz first -- at full clock this period overflows TIM3's 16-bit ARR and silently crashes boot in hx8353e_init(). */
+			 * st,prescaler (see &timers3) must divide 72 MHz to 1 MHz first -- at full clock this period overflows TIM3's 16-bit ARR and silently crashes boot in hx8353e_init().
+			 */
 			pwms = <&pwm3 1 PWM_USEC(10000) PWM_POLARITY_NORMAL>;
 		};
 	};
 
 	hr_c6000_spi: spi {
 		/* IRQ-safe SPI: the HR-C6000 driver issues spi_transceive() from interrupt context (DMR timeslot state
-		 * machine), but upstream zephyr,spi-bitbang acquires a k_sem and isn't ISR-callable; this uses k_spinlock_t instead. */
+		 * machine), but upstream zephyr,spi-bitbang acquires a k_sem and isn't ISR-callable; this uses k_spinlock_t instead.
+		 */
 		compatible = "ht-radio,spi-bitbang-irq";
 		status = "okay";
 		#address-cells = <1>;
@@ -224,7 +235,8 @@
 			spi-max-frequency = <1000000>;
 			power-down-gpios   = <&gpioe 6 GPIO_ACTIVE_LOW>;
 			/* Three HR-C6000 interrupt outputs; edge type (rising) is set at runtime via
-			 * gpio_pin_interrupt_configure_dt() -- only active-level polarity belongs in these DT cell flags. */
+			 * gpio_pin_interrupt_configure_dt() -- only active-level polarity belongs in these DT cell flags.
+			 */
 			timeslot-int-gpios = <&gpioc 0 GPIO_ACTIVE_HIGH>;
 			sys-int-gpios      = <&gpioc 1 GPIO_ACTIVE_HIGH>;
 			rftx-int-gpios     = <&gpioc 2 GPIO_ACTIVE_HIGH>;
@@ -360,7 +372,8 @@ zephyr_udc0: &usbotg_fs {
 		tx-freq-offset-hz = <0>;
 		squelch-mode = "software";
 		/* Volume pot (PA0) is an audio-taper element -- midpoint measured ~14% on hardware, matching the
-		 * standard "A" taper's 10-15% band. The reverse-mapping LUT for "audio-a" lives in src/ui/ui.c, not here. */
+		 * standard "A" taper's 10-15% band. The reverse-mapping LUT for "audio-a" lives in src/ui/ui.c, not here.
+		 */
 		volume-taper = "audio-a";
 	};
 };
@@ -380,7 +393,8 @@ zephyr_udc0: &usbotg_fs {
 		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_TICKS, 480)>;
 		zephyr,resolution      = <12>;
 		/* zephyr,oversampling is NOT usable here -- STM32F405's basic ADC has no hardware oversampler; setting
-		 * it returns -ENOTSUP on every read, silently killing this channel. Noise smoothing lives in ui_input.c instead. */
+		 * it returns -ENOTSUP on every read, silently killing this channel. Noise smoothing lives in ui_input.c instead.
+		 */
 	};
 
 	channel@1 {
@@ -491,7 +505,8 @@ zephyr_udc0: &usbotg_fs {
 };
 
 /* hx8353e backlight PWM (Display settings' Brightness row); st,prescaler divides 72 MHz to 1 MHz (1 tick = 1 us) --
- * see the pwms comment on hx8353e for why an undivided clock silently overflows TIM3's ARR and crashes boot. */
+ * see the pwms comment on hx8353e for why an undivided clock silently overflows TIM3's ARR and crashes boot.
+ */
 &timers3 {
 	status = "okay";
 	st,prescaler = <71>;

@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "overlay_quickmenu.h"
 #include "../theme.h"
@@ -13,10 +13,10 @@
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
-#define OVERLAY_W        140
-#define ROW_H             18
-#define OVERLAY_H       (ROW_H * ARRAY_SIZE(s_row_labels))
-#define DISMISS_MS      4000
+#define OVERLAY_W  140
+#define ROW_H      18
+#define OVERLAY_H  (ROW_H * ARRAY_SIZE(s_row_labels))
+#define DISMISS_MS 4000
 
 static const char *const s_row_labels[] = {
 	"Bandwidth",
@@ -25,9 +25,9 @@ static const char *const s_row_labels[] = {
 	"VFO A/B",
 };
 
-static lv_obj_t   *s_panel;
-static lv_obj_t   *s_rows[ARRAY_SIZE(s_row_labels)];
-static lv_obj_t   *s_prev_focus; /* restored on hide */
+static lv_obj_t *s_panel;
+static lv_obj_t *s_rows[ARRAY_SIZE(s_row_labels)];
+static lv_obj_t *s_prev_focus; /* restored on hide */
 static lv_timer_t *s_dismiss_timer;
 
 static void dismiss_cb(lv_timer_t *t)
@@ -41,16 +41,16 @@ static void dismiss_cb(lv_timer_t *t)
 static void set_row_text_focused(lv_obj_t *row, bool focused)
 {
 	if (lv_obj_get_child_count(row) > 0) {
-		lv_obj_set_style_text_color(lv_obj_get_child(row, 0),
-					    focused ? theme_colors()->bg
-						    : theme_colors()->text_primary,
-					    LV_PART_MAIN);
+		lv_obj_set_style_text_color(
+			lv_obj_get_child(row, 0),
+			focused ? theme_colors()->bg : theme_colors()->text_primary, LV_PART_MAIN);
 	}
 }
 
 /** Row event callback: FOCUSED resets the auto-dismiss timer; CLICKED cycles/toggles the
  * corresponding radio setting (Bandwidth/Squelch/CTCSS-DCS, one step per click, same as
- * a single Settings-tab row click) or flips the active VFO, then closes the menu. */
+ * a single Settings-tab row click) or flips the active VFO, then closes the menu.
+ */
 static void row_cb(lv_event_t *e)
 {
 	lv_event_code_t code = lv_event_get_code(e);
@@ -111,7 +111,8 @@ void overlay_quickmenu_create(void)
 		lv_obj_set_scrollbar_mode(row, LV_SCROLLBAR_MODE_OFF);
 		lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
 		/* Saturated focus background + inverted text, matching
-		 * screen_settings.c's rows. */
+		 * screen_settings.c's rows.
+		 */
 		lv_obj_set_style_bg_color(row, theme_colors()->accent_secondary,
 					  LV_PART_MAIN | LV_STATE_FOCUSED);
 		lv_obj_add_event_cb(row, row_cb, LV_EVENT_CLICKED, (void *)s_row_labels[i]);

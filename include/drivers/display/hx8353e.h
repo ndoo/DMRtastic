@@ -1,6 +1,6 @@
-/*
+/* SPDX-License-Identifier: MIT
+ *
  * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
- * SPDX-License-Identifier: MIT
  *
  * HX8353E-specific display API not covered by Zephyr's generic
  * display_driver_api (zephyr/drivers/display.h has no inversion field).

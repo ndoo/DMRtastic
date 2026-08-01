@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+
 /*
- * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
- * SPDX-License-Identifier: Apache-2.0
- *
  * GPIO keyboard matrix that shares its sensed (row) pins with another
  * peripheral; scanned explicitly (see kbd_matrix_shared_bus_scan()) instead
  * of via the common driver's autonomous polling thread.
@@ -29,8 +29,7 @@ struct kbd_matrix_shared_bus_data {
 	struct input_kbd_matrix_common_data common;
 };
 
-INPUT_KBD_STRUCT_CHECK(struct kbd_matrix_shared_bus_config,
-		       struct kbd_matrix_shared_bus_data);
+INPUT_KBD_STRUCT_CHECK(struct kbd_matrix_shared_bus_config, struct kbd_matrix_shared_bus_data);
 
 /** Scan the matrix once and report debounced key events via the input subsystem. */
 int kbd_matrix_shared_bus_scan(const struct device *dev)
@@ -127,41 +126,44 @@ static int kbd_matrix_shared_bus_init(const struct device *dev)
 			return -ENODEV;
 		}
 		/* Left as whatever the peer configured; scan() takes and
-		 * hands back ownership each call. */
+		 * hands back ownership each call.
+		 */
 	}
 
 	return 0;
 }
 
-#define KBD_MATRIX_SHARED_BUS_INIT(n)								\
-	BUILD_ASSERT(DT_INST_PROP_LEN(n, row_gpios) <= INPUT_KBD_MATRIX_ROW_BITS,		\
-		     "row-gpios exceeds kbd_row_t width");					\
-												\
-	INPUT_KBD_MATRIX_DT_INST_DEFINE_ROW_COL(						\
-		n, DT_INST_PROP_LEN(n, row_gpios), DT_INST_PROP_LEN(n, col_gpios));		\
-												\
-	static const struct gpio_dt_spec kbd_matrix_shared_bus_row_gpio_##n[DT_INST_PROP_LEN(	\
-			n, row_gpios)] = {							\
-		DT_INST_FOREACH_PROP_ELEM_SEP(n, row_gpios, GPIO_DT_SPEC_GET_BY_IDX, (,))	\
-	};											\
-	static const struct gpio_dt_spec kbd_matrix_shared_bus_col_gpio_##n[DT_INST_PROP_LEN(	\
-			n, col_gpios)] = {							\
-		DT_INST_FOREACH_PROP_ELEM_SEP(n, col_gpios, GPIO_DT_SPEC_GET_BY_IDX, (,))	\
-	};											\
-												\
-	static const struct kbd_matrix_shared_bus_config kbd_matrix_shared_bus_cfg_##n = {	\
-		.common = INPUT_KBD_MATRIX_DT_INST_COMMON_CONFIG_INIT_ROW_COL(			\
-			n, NULL,								\
-			DT_INST_PROP_LEN(n, row_gpios), DT_INST_PROP_LEN(n, col_gpios)),	\
-		.row_gpio = kbd_matrix_shared_bus_row_gpio_##n,				\
-		.col_gpio = kbd_matrix_shared_bus_col_gpio_##n,				\
-	};											\
-												\
-	static struct kbd_matrix_shared_bus_data kbd_matrix_shared_bus_data_##n;		\
-												\
-	DEVICE_DT_INST_DEFINE(n, kbd_matrix_shared_bus_init, NULL,				\
-			      &kbd_matrix_shared_bus_data_##n, &kbd_matrix_shared_bus_cfg_##n,	\
-			      POST_KERNEL, CONFIG_INPUT_INIT_PRIORITY,				\
-			      NULL);
+/*
+ * Keeps DT_INST_FOREACH_PROP_ELEM_SEP's (,)) separator token intact -- clang-format
+ * wants to insert a space that trips checkpatch's SPACING check.
+ */
+/* clang-format off */
+#define KBD_MATRIX_SHARED_BUS_INIT(n)                                                              \
+	BUILD_ASSERT(DT_INST_PROP_LEN(n, row_gpios) <= INPUT_KBD_MATRIX_ROW_BITS,                  \
+		     "row-gpios exceeds kbd_row_t width");                                         \
+                                                                                                   \
+	INPUT_KBD_MATRIX_DT_INST_DEFINE_ROW_COL(n, DT_INST_PROP_LEN(n, row_gpios),                 \
+						DT_INST_PROP_LEN(n, col_gpios));                   \
+                                                                                                   \
+	static const struct gpio_dt_spec kbd_matrix_shared_bus_row_gpio_##n[DT_INST_PROP_LEN(      \
+		n, row_gpios)] = {                                                                 \
+		DT_INST_FOREACH_PROP_ELEM_SEP(n, row_gpios, GPIO_DT_SPEC_GET_BY_IDX, (,))};       \
+	static const struct gpio_dt_spec kbd_matrix_shared_bus_col_gpio_##n[DT_INST_PROP_LEN(      \
+		n, col_gpios)] = {                                                                 \
+		DT_INST_FOREACH_PROP_ELEM_SEP(n, col_gpios, GPIO_DT_SPEC_GET_BY_IDX, (,))};       \
+                                                                                                   \
+	static const struct kbd_matrix_shared_bus_config kbd_matrix_shared_bus_cfg_##n = {         \
+		.common = INPUT_KBD_MATRIX_DT_INST_COMMON_CONFIG_INIT_ROW_COL(                     \
+			n, NULL, DT_INST_PROP_LEN(n, row_gpios), DT_INST_PROP_LEN(n, col_gpios)),  \
+		.row_gpio = kbd_matrix_shared_bus_row_gpio_##n,                                    \
+		.col_gpio = kbd_matrix_shared_bus_col_gpio_##n,                                    \
+	};                                                                                         \
+                                                                                                   \
+	static struct kbd_matrix_shared_bus_data kbd_matrix_shared_bus_data_##n;                   \
+                                                                                                   \
+	DEVICE_DT_INST_DEFINE(n, kbd_matrix_shared_bus_init, NULL,                                 \
+			      &kbd_matrix_shared_bus_data_##n, &kbd_matrix_shared_bus_cfg_##n,     \
+			      POST_KERNEL, CONFIG_INPUT_INIT_PRIORITY, NULL);
+/* clang-format on */
 
 DT_INST_FOREACH_STATUS_OKAY(KBD_MATRIX_SHARED_BUS_INIT)

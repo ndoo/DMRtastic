@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 /*
  * Screen manager — static top-level frames, meshtastic-device-ui convention.
@@ -34,17 +34,20 @@
 LOG_MODULE_REGISTER(app_ui, LOG_LEVEL_INF);
 
 /* ---------- Frame ops table -----------------------------------------------
- * SCREEN_BOOT has no entry -- one-shot transient, handled by app_init()/app_switch_screen(), not the static-frame model. */
+ * SCREEN_BOOT has no entry -- one-shot transient, handled by app_init()/app_switch_screen(), not
+ * the static-frame model.
+ */
 
 typedef struct {
 	lv_obj_t *(*create)(lv_obj_t *parent);
-	void      (*update)(lv_obj_t *screen);
-	void      (*handle_action)(lv_obj_t *screen, ui_action_t action);
+	void (*update)(lv_obj_t *screen);
+	void (*handle_action)(lv_obj_t *screen, ui_action_t action);
 } frame_ops_t;
 
 /** OK opens Settings; Up/Down and the encoder both step the RX frequency; digit keys drive
  * direct-frequency entry (no separate "enter mode" keypress) and Star backspaces the
- * entry's last digit. */
+ * entry's last digit.
+ */
 static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
@@ -83,7 +86,8 @@ static void fm_vfo_handle_action(lv_obj_t *screen, ui_action_t action)
  * (Milestone 3d). Up/Down and the encoder step to the next/previous in-use codeplug channel.
  * Digit keys drive direct channel-number entry, same no-separate-"enter mode" convention as
  * FM VFO's frequency entry; no Star/backspace here -- this entry has no backspace, only
- * commit or cancel. */
+ * commit or cancel.
+ */
 static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
 {
 	switch (action) {
@@ -120,28 +124,29 @@ static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
 }
 
 static const frame_ops_t frame_ops[SCREEN_COUNT] = {
-	[SCREEN_FM_VFO]      = { screen_fm_vfo_create, screen_fm_vfo_update,
-				  fm_vfo_handle_action                          },
-	[SCREEN_FM_CHANNEL]  = { screen_fm_channel_create, screen_fm_channel_update,
-				  fm_channel_handle_action                       },
-	[SCREEN_SETTINGS]    = { settings_controller_create_screen, screen_settings_update,
-				  screen_settings_handle_action                 },
+	[SCREEN_FM_VFO] = {screen_fm_vfo_create, screen_fm_vfo_update, fm_vfo_handle_action},
+	[SCREEN_FM_CHANNEL] = {screen_fm_channel_create, screen_fm_channel_update,
+			       fm_channel_handle_action},
+	[SCREEN_SETTINGS] = {settings_controller_create_screen, screen_settings_update,
+			     screen_settings_handle_action},
 	/* stubs — not implemented */
-	[SCREEN_DMR_VFO]     = { NULL, NULL, NULL },
-	[SCREEN_DMR_CHANNEL] = { NULL, NULL, NULL },
-	[SCREEN_CONTACTS]    = { NULL, NULL, NULL },
-	[SCREEN_ZONES]       = { NULL, NULL, NULL },
+	[SCREEN_DMR_VFO] = {NULL, NULL, NULL},
+	[SCREEN_DMR_CHANNEL] = {NULL, NULL, NULL},
+	[SCREEN_CONTACTS] = {NULL, NULL, NULL},
+	[SCREEN_ZONES] = {NULL, NULL, NULL},
 };
 
 /* ---------- Frame state -----------------------------------------------------
- * s_frame_obj[id] is set once a frame is created (never again); s_frame_stack holds Back history as plain IDs -- objects live forever, nothing to destroy on pop. */
+ * s_frame_obj[id] is set once a frame is created (never again); s_frame_stack holds Back history as
+ * plain IDs -- objects live forever, nothing to destroy on pop.
+ */
 
 static lv_obj_t *s_frame_obj[SCREEN_COUNT];
 
 #define UI_FRAME_STACK_DEPTH 4
 
 static screen_id_t s_frame_stack[UI_FRAME_STACK_DEPTH];
-static int         s_frame_top = -1;
+static int s_frame_top = -1;
 
 static lv_obj_t *s_boot_obj; /* one-shot transient; NULL once torn down */
 
@@ -150,13 +155,17 @@ static lv_obj_t *s_status_bar_obj;
 static lv_obj_t *s_content;
 
 /* ---------- Shared input group (meshtastic-device-ui convention) ------------
- * One lv_group_t serves every group-navigable widget, fed by the keypad indev only, attached only while something with group members is on top. */
+ * One lv_group_t serves every group-navigable widget, fed by the keypad indev only, attached only
+ * while something with group members is on top.
+ */
 
 static lv_group_t *s_input_group;
 static lv_indev_t *s_keypad_indev;
-static bool         s_indev_group_attached;
+static bool s_indev_group_attached;
 
-/** Attaches the shared input group to the keypad indev only while Settings or the quick-menu is on top. */
+/** Attaches the shared input group to the keypad indev only while Settings or the quick-menu is on
+ * top.
+ */
 static void update_indev_group_attachment(void)
 {
 	bool need_group = (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS) ||
@@ -168,8 +177,10 @@ static void update_indev_group_attachment(void)
 
 	lv_indev_set_group(s_keypad_indev, need_group ? s_input_group : NULL);
 	if (need_group) {
-		/* The OK press that opened this screen may still be mid-air (queued PRESS, no RELEASE yet) --
-		 * without this, LVGL fires a stray RELEASE on whatever's now focused, descending into tab content instead of the tab bar. */
+		/* The OK press that opened this screen may still be mid-air (queued PRESS, no
+		 * RELEASE yet) -- without this, LVGL fires a stray RELEASE on whatever's now
+		 * focused, descending into tab content instead of the tab bar.
+		 */
 		lv_indev_wait_release(s_keypad_indev);
 	}
 	s_indev_group_attached = need_group;
@@ -187,7 +198,9 @@ void app_post_action(ui_action_t action)
 	(void)k_msgq_put(&ui_events, &action, K_NO_WAIT);
 }
 
-/* Depth-1, overwrite-latest: the pot reports a continuous position, so only the latest value before app_tick() matters. */
+/* Depth-1, overwrite-latest: the pot reports a continuous position, so only the latest value before
+ * app_tick() matters.
+ */
 K_MSGQ_DEFINE(ui_vol_events, sizeof(uint16_t), 1, 1);
 
 /* vol_axis_ch's out-min/out-max mirror in-min/in-max exactly (board DTS). */
@@ -213,9 +226,10 @@ void app_post_volume_abs(uint16_t raw)
 /* ---------- 200 ms update timer ----------------------------------------- */
 
 /* Reuses this 200ms poll instead of a separate k_timer: it already runs on
- * the LVGL thread regardless of frame, avoiding new cross-thread sync. */
+ * the LVGL thread regardless of frame, avoiding new cross-thread sync.
+ */
 static int64_t s_last_activity_ms;
-static bool    s_backlight_dimmed;
+static bool s_backlight_dimmed;
 
 /** Applies either the dimmed off-level or full brightness to the backlight PWM. */
 static void backlight_apply_dim(bool dim)
@@ -268,8 +282,8 @@ static uint16_t s_volume_raw = (VOL_AXIS_MIN + VOL_AXIS_MAX) / 2; /* runtime vol
 /** Rescales the pot's raw ADC reading linearly to 0-100% for the driver's volume API. */
 static void radio_set_volume_pct(uint16_t raw)
 {
-	uint8_t pct = (uint8_t)DIV_ROUND_CLOSEST((uint32_t)(raw - VOL_AXIS_MIN) * 100,
-						  VOL_AXIS_SPAN);
+	uint8_t pct =
+		(uint8_t)DIV_ROUND_CLOSEST((uint32_t)(raw - VOL_AXIS_MIN) * 100, VOL_AXIS_SPAN);
 	int rc = radio_state_set_volume(pct);
 
 	if (rc < 0) {
@@ -278,13 +292,15 @@ static void radio_set_volume_pct(uint16_t raw)
 }
 
 /* 11-point piecewise-linear reverse-mapping LUTs (raw-span fraction -> display %);
- * selected at compile time by the AT1846S node's volume-taper DT property. */
+ * selected at compile time by the AT1846S node's volume-taper DT property.
+ */
 static const uint8_t taper_lut_linear[11] = {
 	0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
 };
 
 /* Standard "A" (audio/log) taper, ~14% output at 50% rotation on this board;
- * modeled as two linear segments rather than a smooth curve. */
+ * modeled as two linear segments rather than a smooth curve.
+ */
 static const uint8_t taper_lut_audio_a[11] = {
 	0, 42, 55, 60, 66, 72, 77, 83, 89, 94, 100,
 };
@@ -295,7 +311,9 @@ static const uint8_t *const s_volume_taper_lut = taper_lut_audio_a;
 static const uint8_t *const s_volume_taper_lut = taper_lut_linear;
 #endif
 
-/** Maps a raw pot reading to a display percent via the selected taper LUT, interpolating between checkpoints. */
+/** Maps a raw pot reading to a display percent via the selected taper LUT, interpolating between
+ * checkpoints.
+ */
 static uint8_t volume_display_pct(uint16_t raw)
 {
 	if (raw >= VOL_AXIS_MAX) {
@@ -303,7 +321,8 @@ static uint8_t volume_display_pct(uint16_t raw)
 	}
 
 	/* Scale by 10 before dividing by span so index and in-segment fraction
-	 * come from one calculation, without requiring span to be a multiple of 10. */
+	 * come from one calculation, without requiring span to be a multiple of 10.
+	 */
 	uint32_t pos10 = (uint32_t)(raw - VOL_AXIS_MIN) * 10;
 	uint32_t idx = pos10 / VOL_AXIS_SPAN;
 	uint32_t rem = pos10 % VOL_AXIS_SPAN;
@@ -328,7 +347,8 @@ static void dispatch_action(ui_action_t action)
 	case UI_ACTION_BACK:
 		/* Priority: quick-menu overlay > tabview row level > in-progress digit
 		 * entry (either screen) > VFO<->Channel root toggle > leave the frame;
-		 * each check only fires if the one above it doesn't apply. */
+		 * each check only fires if the one above it doesn't apply.
+		 */
 		if (overlay_quickmenu_is_active()) {
 			overlay_quickmenu_hide();
 		} else if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_SETTINGS &&
@@ -342,7 +362,8 @@ static void dispatch_action(ui_action_t action)
 			screen_fm_channel_entry_cancel(s_frame_obj[SCREEN_FM_CHANNEL]);
 		} else if (s_frame_top == 0 && s_frame_stack[0] == SCREEN_FM_VFO) {
 			/* Root of FM VFO, nothing to pop -- a bare Back short-press
-			 * toggles to Channel mode instead (Milestone 3c). */
+			 * toggles to Channel mode instead (Milestone 3c).
+			 */
 			app_switch_screen(SCREEN_FM_CHANNEL);
 		} else if (s_frame_top == 0 && s_frame_stack[0] == SCREEN_FM_CHANNEL) {
 			app_switch_screen(SCREEN_FM_VFO);
@@ -352,11 +373,13 @@ static void dispatch_action(ui_action_t action)
 		break;
 	case UI_ACTION_VOL_UP:
 		apply_volume(s_volume_raw <= VOL_AXIS_MAX - VOLUME_STEP_RAW
-				     ? s_volume_raw + VOLUME_STEP_RAW : VOL_AXIS_MAX);
+				     ? s_volume_raw + VOLUME_STEP_RAW
+				     : VOL_AXIS_MAX);
 		break;
 	case UI_ACTION_VOL_DN:
 		apply_volume(s_volume_raw >= VOL_AXIS_MIN + VOLUME_STEP_RAW
-				     ? s_volume_raw - VOLUME_STEP_RAW : VOL_AXIS_MIN);
+				     ? s_volume_raw - VOLUME_STEP_RAW
+				     : VOL_AXIS_MIN);
 		break;
 	case UI_ACTION_OK:
 	case UI_ACTION_UP:
@@ -376,7 +399,8 @@ static void dispatch_action(ui_action_t action)
 	case UI_ACTION_KEY_STAR:
 		/* The quick-menu's own row nav/selection runs through the shared lv_group indev --
 		 * skip forwarding here too, or every press double-handles (e.g. Up/Down also steps
-		 * the VFO underneath). */
+		 * the VFO underneath).
+		 */
 		if (s_frame_top >= 0 && !overlay_quickmenu_is_active()) {
 			screen_id_t id = s_frame_stack[s_frame_top];
 
@@ -418,8 +442,7 @@ void app_init(void)
 	s_status_bar_obj = lv_obj_create(scr);
 	lv_obj_set_size(s_status_bar_obj, lv_pct(100), UI_STATUS_BAR_HEIGHT);
 	lv_obj_set_pos(s_status_bar_obj, 0, 0);
-	lv_obj_set_style_bg_color(s_status_bar_obj, theme_colors()->surface,
-				  LV_PART_MAIN);
+	lv_obj_set_style_bg_color(s_status_bar_obj, theme_colors()->surface, LV_PART_MAIN);
 	lv_obj_set_style_border_width(s_status_bar_obj, 0, LV_PART_MAIN);
 	lv_obj_set_style_radius(s_status_bar_obj, 0, LV_PART_MAIN);
 	lv_obj_set_style_pad_all(s_status_bar_obj, 0, LV_PART_MAIN);
@@ -445,16 +468,19 @@ void app_init(void)
 	/* Load settings (codeplug where mapped, else firmware defaults), apply the result
 	 * to hardware, and refresh the Settings menu's value_str buffers -- before any
 	 * frame is created, so the first paint already shows the right values instead of
-	 * waiting for the next 200 ms update tick. */
+	 * waiting for the next 200 ms update tick.
+	 */
 	settings_controller_init();
 
 	/* Seeds VFO A/B from the codeplug -- before the first frame paints, same reasoning
-	 * as settings_controller_init() above. */
+	 * as settings_controller_init() above.
+	 */
 	fm_vfo_controller_init();
 
 	/* Caches the first in-use codeplug channel for the console's "channel" command and the
 	 * future FM Channel screen (Milestone 3b) -- doesn't touch the radio, see
-	 * channel_controller_init()'s own doc comment for why. */
+	 * channel_controller_init()'s own doc comment for why.
+	 */
 	channel_controller_init();
 
 	/* Overlays — created once, parented to lv_layer_top() */
@@ -494,7 +520,8 @@ void app_tick(void)
 		apply_volume(vol_raw);
 	}
 	/* Cheap enough to recompute every tick — self-heals within one ~50 ms
-	 * iteration after any frame switch or quick-menu show/dismiss. */
+	 * iteration after any frame switch or quick-menu show/dismiss.
+	 */
 	update_indev_group_attachment();
 }
 
@@ -520,7 +547,8 @@ void app_push_screen(screen_id_t id)
 	/* Force a first paint now rather than waiting up to one 200 ms update_timer_cb
 	 * tick -- a frame hidden behind another (e.g. Settings behind the quick menu)
 	 * never gets frame_ops[].update() called while hidden, so without this its
-	 * widgets can still show whatever was true when it was last topmost. */
+	 * widgets can still show whatever was true when it was last topmost.
+	 */
 	if (frame_ops[id].update) {
 		frame_ops[id].update(s_frame_obj[id]);
 	}
@@ -549,7 +577,8 @@ void app_pop_screen(void)
 
 /** Replaces the base (depth-0) frame with id, clearing any Back history above it. Handles
  * the one-time boot transition (destroys the boot splash) as well as the FM VFO<->Channel
- * mode toggle (Milestone 3c), which both land here with s_frame_top already at -1 or 0. */
+ * mode toggle (Milestone 3c), which both land here with s_frame_top already at -1 or 0.
+ */
 void app_switch_screen(screen_id_t id)
 {
 	if (s_boot_obj) {

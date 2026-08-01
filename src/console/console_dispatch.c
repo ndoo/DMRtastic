@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "console_dispatch.h"
 #include "console_debug.h"
@@ -16,12 +16,12 @@ static void cmd_help(char *args)
 	ARG_UNUSED(args);
 
 	for (size_t i = 0; i < console_debug_cmd_count; i++) {
-		console_transport_printf("%-9s %s\r\n",
-					  console_debug_cmds[i].name, console_debug_cmds[i].help);
+		console_transport_printf("%-9s %s\r\n", console_debug_cmds[i].name,
+					 console_debug_cmds[i].help);
 	}
 	for (size_t i = 0; i < console_view_cmd_count; i++) {
-		console_transport_printf("%-9s %s\r\n",
-					  console_view_cmds[i].name, console_view_cmds[i].help);
+		console_transport_printf("%-9s %s\r\n", console_view_cmds[i].name,
+					 console_view_cmds[i].help);
 	}
 	console_transport_puts("help      this list\r\n");
 }
@@ -77,7 +77,7 @@ static void console_dispatch_thread_fn(void *p1, void *p2, void *p3)
 	console_transport_rx_start();
 
 	char buf[LINE_BUF];
-	int  pos = 0;
+	int pos = 0;
 
 	while (true) {
 		int c = console_transport_getc();
@@ -101,7 +101,5 @@ static void console_dispatch_thread_fn(void *p1, void *p2, void *p3)
 #define CONSOLE_DISPATCH_STACK 1536
 #define CONSOLE_DISPATCH_PRIO  10
 
-K_THREAD_DEFINE(console_dispatch_tid,
-		CONSOLE_DISPATCH_STACK,
-		console_dispatch_thread_fn, NULL, NULL, NULL,
-		CONSOLE_DISPATCH_PRIO, 0, 0);
+K_THREAD_DEFINE(console_dispatch_tid, CONSOLE_DISPATCH_STACK, console_dispatch_thread_fn, NULL,
+		NULL, NULL, CONSOLE_DISPATCH_PRIO, 0, 0);

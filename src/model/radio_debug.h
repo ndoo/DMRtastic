@@ -1,5 +1,7 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ */
 
 #ifndef DMRTASTIC_RADIO_DEBUG_H_
 #define DMRTASTIC_RADIO_DEBUG_H_
@@ -14,7 +16,8 @@ extern "C" {
 /* Raw register/RTC access for the debug console -- thin 1:1 driver wrappers, same
  * shape as radio_state.c but for the register-level surface instead of the
  * business-level one. This is the second (and only other) file allowed to call
- * DEVICE_DT_GET() on the at1846s/hr_c6000/rtc nodes; see ui_architecture.md. */
+ * DEVICE_DT_GET() on the at1846s/hr_c6000/rtc nodes; see ui_architecture.md.
+ */
 
 int radio_debug_at_read(uint8_t reg, uint8_t *hi, uint8_t *lo);
 int radio_debug_at_write(uint8_t reg, uint8_t hi, uint8_t lo);

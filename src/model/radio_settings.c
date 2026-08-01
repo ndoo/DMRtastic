@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "radio_settings.h"
 #include "codeplug.h"
@@ -9,25 +9,26 @@
 LOG_MODULE_REGISTER(radio_settings, LOG_LEVEL_INF);
 
 struct radio_settings {
-	uint8_t  squelch_level;
-	bool     bandwidth_is_25k;
+	uint8_t squelch_level;
+	bool bandwidth_is_25k;
 	struct cp_css css;
 	uint32_t vfo_step_hz;
-	uint8_t  brightness_pct;
-	uint8_t  backlight_off_pct;
-	uint8_t  screen_timeout_s;
-	bool     screen_invert;
-	bool     visual_volume_enabled;
-	bool     battery_unit_is_percent;
-	bool     leds_enabled;
+	uint8_t brightness_pct;
+	uint8_t backlight_off_pct;
+	uint8_t screen_timeout_s;
+	bool screen_invert;
+	bool visual_volume_enabled;
+	bool battery_unit_is_percent;
+	bool leds_enabled;
 };
 
 /* Matches the firmware defaults the UI used to hardcode; overridden by settings_init()
- * for the fields with a codeplug mapping when the codeplug is present and decodable. */
+ * for the fields with a codeplug mapping when the codeplug is present and decodable.
+ */
 static struct radio_settings s_settings = {
 	.squelch_level = 55,
 	.bandwidth_is_25k = true,
-	.css = { .type = CP_CSS_NONE, .value = 0, .inverted = false },
+	.css = {.type = CP_CSS_NONE, .value = 0, .inverted = false},
 	.vfo_step_hz = 5000,
 	.brightness_pct = 100,
 	.backlight_off_pct = 10,
@@ -39,7 +40,7 @@ static struct radio_settings s_settings = {
 };
 
 struct settings_range {
-	bool    defined;
+	bool defined;
 	int32_t min;
 	int32_t max;
 };
@@ -47,11 +48,12 @@ struct settings_range {
 /* Brightness/backlight-off share this floor: measured fully dark by 6% on this
  * hardware's PWM backlight, so 1-9% isn't a meaningfully distinct level. Screen
  * timeout's range matches the UI's Off..30s sweep. Keys not listed here (bools, and
- * fields whose valid values come from a fixed UI preset table) have no defined range. */
+ * fields whose valid values come from a fixed UI preset table) have no defined range.
+ */
 static const struct settings_range s_ranges[SETTINGS_KEY_COUNT] = {
-	[SETTINGS_KEY_BRIGHTNESS]     = { .defined = true, .min = 10, .max = 100 },
-	[SETTINGS_KEY_BACKLIGHT_OFF]  = { .defined = true, .min = 0,  .max = 100 },
-	[SETTINGS_KEY_SCREEN_TIMEOUT] = { .defined = true, .min = 0,  .max = 30  },
+	[SETTINGS_KEY_BRIGHTNESS] = {.defined = true, .min = 10, .max = 100},
+	[SETTINGS_KEY_BACKLIGHT_OFF] = {.defined = true, .min = 0, .max = 100},
+	[SETTINGS_KEY_SCREEN_TIMEOUT] = {.defined = true, .min = 0, .max = 30},
 };
 
 bool settings_get_range(enum settings_key key, int32_t *min_out, int32_t *max_out)
@@ -82,12 +84,13 @@ static int32_t clamp_to_range(enum settings_key key, int32_t value)
 #define SETTINGS_MAX_SUBSCRIBERS 4
 
 static settings_changed_cb_t s_subscribers[SETTINGS_MAX_SUBSCRIBERS];
-static int                   s_subscriber_count;
+static int s_subscriber_count;
 
 void settings_subscribe(settings_changed_cb_t cb)
 {
 	if (s_subscriber_count >= SETTINGS_MAX_SUBSCRIBERS) {
-		LOG_WRN("subscriber list full (%d), dropping registration", SETTINGS_MAX_SUBSCRIBERS);
+		LOG_WRN("subscriber list full (%d), dropping registration",
+			SETTINGS_MAX_SUBSCRIBERS);
 		return;
 	}
 	s_subscribers[s_subscriber_count++] = cb;
@@ -111,7 +114,8 @@ void settings_apply_all(void)
  * block. Skips (logged) if the block isn't present/decodable -- same magic gate as
  * settings_init(). codeplug_write() is currently a no-op (-ENOTSUP, logged there),
  * so this doesn't touch flash yet, but the RMW logic is fully in place for when it
- * does. */
+ * does.
+ */
 static void persist_nv(void)
 {
 	uint8_t buf[sizeof(struct cp_nv_settings)];
@@ -119,8 +123,8 @@ static void persist_nv(void)
 	int rc = codeplug_get_nv_settings_raw(buf, sizeof(buf), &magic);
 
 	if (rc < 0 || magic != CP_NV_SETTINGS_MAGIC_LATEST) {
-		LOG_WRN("persist skipped: nv-settings unavailable/stale (rc=%d magic=0x%08x)",
-			rc, magic);
+		LOG_WRN("persist skipped: nv-settings unavailable/stale (rc=%d magic=0x%08x)", rc,
+			magic);
 		return;
 	}
 
@@ -140,22 +144,23 @@ void settings_init(void)
 	int rc = codeplug_get_nv_settings_raw(buf, sizeof(buf), &magic);
 
 	if (rc < 0 || magic != CP_NV_SETTINGS_MAGIC_LATEST) {
-		LOG_WRN("codeplug nv-settings unavailable/stale (rc=%d magic=0x%08x); using firmware defaults",
+		LOG_WRN("codeplug nv-settings unavail/stale (rc=%d magic=0x%08x), using defaults",
 			rc, magic);
 		return;
 	}
 
 	struct cp_nv_settings *nv = (struct cp_nv_settings *)buf;
 
-	s_settings.brightness_pct = (uint8_t)clamp_to_range(SETTINGS_KEY_BRIGHTNESS,
-							     nv->displayBacklightPercentage[0]);
+	s_settings.brightness_pct =
+		(uint8_t)clamp_to_range(SETTINGS_KEY_BRIGHTNESS, nv->displayBacklightPercentage[0]);
 	s_settings.backlight_off_pct = (uint8_t)clamp_to_range(SETTINGS_KEY_BACKLIGHT_OFF,
-								nv->displayBacklightPercentageOff);
-	s_settings.screen_timeout_s = (uint8_t)clamp_to_range(SETTINGS_KEY_SCREEN_TIMEOUT,
-							       nv->backLightTimeout);
+							       nv->displayBacklightPercentageOff);
+	s_settings.screen_timeout_s =
+		(uint8_t)clamp_to_range(SETTINGS_KEY_SCREEN_TIMEOUT, nv->backLightTimeout);
 
 	LOG_INF("loaded from codeplug: brightness=%u%% backlight_off=%u%% screen_timeout=%us",
-		s_settings.brightness_pct, s_settings.backlight_off_pct, s_settings.screen_timeout_s);
+		s_settings.brightness_pct, s_settings.backlight_off_pct,
+		s_settings.screen_timeout_s);
 }
 
 uint8_t settings_get_squelch_level(void)

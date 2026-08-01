@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "status_bar.h"
 #include "theme.h"
@@ -15,9 +15,9 @@
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 /* RSSI bar geometry: four bars of increasing height, left-aligned. */
-#define RSSI_BARS        4
-#define RSSI_BAR_W       3
-#define RSSI_BAR_GAP     2
+#define RSSI_BARS    4
+#define RSSI_BAR_W   3
+#define RSSI_BAR_GAP 2
 
 static lv_obj_t *s_mode_label;
 static lv_obj_t *s_scan_label;

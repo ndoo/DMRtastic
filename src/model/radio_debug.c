@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "radio_debug.h"
 
@@ -67,7 +67,8 @@ int radio_debug_rtc_get(struct rtc_time *tm)
 
 /** Sakamoto's algorithm -- day of week for a Gregorian date (0 = Sunday), matching struct rtc_time.
  * The STM32 RTC driver rejects tm_wday == -1 (unlike the "unknown" allowance in the struct's own
- * doc comment), so this can't be left unset on a set. */
+ * doc comment), so this can't be left unset on a set.
+ */
 static int day_of_week(int year, int mon, int day)
 {
 	static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
@@ -81,11 +82,11 @@ static int day_of_week(int year, int mon, int day)
 int radio_debug_rtc_set(int year, int mon, int day, int hour, int min, int sec)
 {
 	struct rtc_time tm = {
-		.tm_sec  = sec,
-		.tm_min  = min,
+		.tm_sec = sec,
+		.tm_min = min,
 		.tm_hour = hour,
 		.tm_mday = day,
-		.tm_mon  = mon - 1,
+		.tm_mon = mon - 1,
 		.tm_year = year - 1900,
 		.tm_wday = day_of_week(year, mon, day),
 		.tm_yday = -1,

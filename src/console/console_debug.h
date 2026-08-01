@@ -1,5 +1,7 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ */
 
 #ifndef DMRTASTIC_CONSOLE_DEBUG_H_
 #define DMRTASTIC_CONSOLE_DEBUG_H_
@@ -13,7 +15,8 @@ extern "C" {
 #endif
 
 /* Hardware-direct debug commands (at/hc/rssi/rtc/cp/reboot) -- register-level
- * poking for bring-up, backed only by model/radio_debug.h and model/codeplug.h. */
+ * poking for bring-up, backed only by model/radio_debug.h and model/codeplug.h.
+ */
 extern const struct console_cmd console_debug_cmds[];
 extern const size_t console_debug_cmd_count;
 

@@ -1,6 +1,6 @@
-/*
+/* SPDX-License-Identifier: MIT
+ *
  * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
- * SPDX-License-Identifier: MIT
  *
  * Radio manager: orchestrates the RF transceiver and DMR baseband, owns
  * the board-level PA/LNA/amp/mic GPIOs and TX power DAC. Application code
@@ -23,8 +23,7 @@ extern "C" {
 int radio_mgr_init(void);
 
 /** Tune RX/TX frequencies (TX offset compensation applied internally) and set mode/bandwidth. */
-int radio_mgr_set_channel(uint32_t rx_hz, uint32_t tx_hz,
-			  enum radio_trx_mode mode,
+int radio_mgr_set_channel(uint32_t rx_hz, uint32_t tx_hz, enum radio_trx_mode mode,
 			  enum radio_bw bw);
 
 int radio_mgr_set_dmr_cfg(uint8_t color_code, uint8_t timeslot);

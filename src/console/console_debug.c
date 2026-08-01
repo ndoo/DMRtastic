@@ -1,10 +1,12 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
-//
-// Hardware-direct debug commands: register-level poking for bring-up. Deliberately
-// bypasses the business-level Model/Controller layers the LVGL UI goes through --
-// every DEVICE_DT_GET for the transceiver/baseband/RTC lives in model/radio_debug.c,
-// this file only parses args, calls it, and formats output.
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+
+/*
+ * Hardware-direct debug commands: register-level poking for bring-up. Deliberately
+ * bypasses the business-level Model/Controller layers the LVGL UI goes through --
+ * every DEVICE_DT_GET for the transceiver/baseband/RTC lives in model/radio_debug.c,
+ * this file only parses args, calls it, and formats output.
+ */
 
 #include "console_debug.h"
 #include "console_util.h"
@@ -23,7 +25,7 @@
 /** "at r <reg>" / "at w <reg> <hi> <lo>" — read/write an AT1846S register. */
 static void cmd_at(char *args)
 {
-	char *sub  = strtok(args, " \t");
+	char *sub = strtok(args, " \t");
 	char *arg1 = strtok(NULL, " \t");
 	char *arg2 = strtok(NULL, " \t");
 	char *arg3 = strtok(NULL, " \t");
@@ -47,16 +49,15 @@ static void cmd_at(char *args)
 			console_transport_printf("0x%02X = %02X%02X\r\n", reg, hi, lo);
 		}
 	} else if (strcmp(sub, "w") == 0) {
-		if (!console_parse_hex8(arg1, &reg) ||
-		    !console_parse_hex8(arg2, &hi)  ||
+		if (!console_parse_hex8(arg1, &reg) || !console_parse_hex8(arg2, &hi) ||
 		    !console_parse_hex8(arg3, &lo)) {
 			console_transport_puts("ERR: at w <reg> <hi> <lo>\r\n");
 			return;
 		}
 		int rc = radio_debug_at_write(reg, hi, lo);
 
-		console_transport_printf("%s 0x%02X = %02X%02X\r\n",
-					  rc < 0 ? "ERR writing" : "OK", reg, hi, lo);
+		console_transport_printf("%s 0x%02X = %02X%02X\r\n", rc < 0 ? "ERR writing" : "OK",
+					 reg, hi, lo);
 	} else {
 		console_transport_puts("ERR: at r|w ...\r\n");
 	}
@@ -65,7 +66,7 @@ static void cmd_at(char *args)
 /** "hc r <page> <reg>" / "hc w <page> <reg> <val>" — read/write an HR-C6000 register. */
 static void cmd_hc(char *args)
 {
-	char *sub  = strtok(args, " \t");
+	char *sub = strtok(args, " \t");
 	char *arg1 = strtok(NULL, " \t");
 	char *arg2 = strtok(NULL, " \t");
 	char *arg3 = strtok(NULL, " \t");
@@ -89,8 +90,7 @@ static void cmd_hc(char *args)
 			console_transport_printf("p%02X:0x%02X = %02X\r\n", page, reg, val);
 		}
 	} else if (strcmp(sub, "w") == 0) {
-		if (!console_parse_hex8(arg1, &page) ||
-		    !console_parse_hex8(arg2, &reg)  ||
+		if (!console_parse_hex8(arg1, &page) || !console_parse_hex8(arg2, &reg) ||
 		    !console_parse_hex8(arg3, &val)) {
 			console_transport_puts("ERR: hc w <page> <reg> <val>\r\n");
 			return;
@@ -98,7 +98,7 @@ static void cmd_hc(char *args)
 		int rc = radio_debug_bb_write(page, reg, val);
 
 		console_transport_printf("%s p%02X:0x%02X = %02X\r\n",
-					  rc < 0 ? "ERR writing" : "OK", page, reg, val);
+					 rc < 0 ? "ERR writing" : "OK", page, reg, val);
 	} else {
 		console_transport_puts("ERR: hc r|w ...\r\n");
 	}
@@ -125,9 +125,9 @@ static void cmd_cp_list(void)
 	int n = codeplug_list_regions(regions, ARRAY_SIZE(regions));
 
 	for (int i = 0; i < n; i++) {
-		console_transport_printf("%-24s off=0x%06lX size=0x%04lX\r\n",
-					  regions[i].name, (unsigned long)regions[i].offset,
-					  (unsigned long)regions[i].size);
+		console_transport_printf("%-24s off=0x%06lX size=0x%04lX\r\n", regions[i].name,
+					 (unsigned long)regions[i].offset,
+					 (unsigned long)regions[i].size);
 	}
 }
 
@@ -211,8 +211,8 @@ static void cmd_cp_region(char *args)
 			console_transport_printf("ERR: %d\r\n", rc);
 			return;
 		}
-		console_transport_printf("radioName=%.8s radioId=%lu\r\n",
-					  s.radioName, (unsigned long)s.radioId);
+		console_transport_printf("radioName=%.8s radioId=%lu\r\n", s.radioName,
+					 (unsigned long)s.radioId);
 	} else if (strcmp(name, "device-info") == 0) {
 		struct cp_device_info d;
 
@@ -221,10 +221,10 @@ static void cmd_cp_region(char *args)
 			console_transport_printf("ERR: %d\r\n", rc);
 			return;
 		}
-		console_transport_printf("model=%.8s sn=%.16s hw=%.8s fw=%.8s\r\n",
-					  d.model, d.sn, d.hardwareVer, d.firmwareVer);
-		console_transport_printf("uhf=%u-%uMHz vhf=%u-%uMHz\r\n",
-					  d.minUHFFreq, d.maxUHFFreq, d.minVHFFreq, d.maxVHFFreq);
+		console_transport_printf("model=%.8s sn=%.16s hw=%.8s fw=%.8s\r\n", d.model, d.sn,
+					 d.hardwareVer, d.firmwareVer);
+		console_transport_printf("uhf=%u-%uMHz vhf=%u-%uMHz\r\n", d.minUHFFreq,
+					 d.maxUHFFreq, d.minVHFFreq, d.maxVHFFreq);
 	} else if (strcmp(name, "channel") == 0) {
 		struct cp_channel ch;
 
@@ -239,20 +239,21 @@ static void cmd_cp_region(char *args)
 		}
 
 		char rx_buf[12], tx_buf[12], lat_buf[16], lon_buf[16];
-		uint8_t lat_raw[3] = { ch.locationLat0, ch.locationLat1, ch.locationLat2 };
-		uint8_t lon_raw[3] = { ch.locationLon0, ch.locationLon1, ch.locationLon2 };
+		uint8_t lat_raw[3] = {ch.locationLat0, ch.locationLat1, ch.locationLat2};
+		uint8_t lon_raw[3] = {ch.locationLon0, ch.locationLon1, ch.locationLon2};
 
-		console_transport_printf("name=%.16s rx=%lu tx=%lu mode=%u pwr=%u\r\n",
-					  ch.name, (unsigned long)ch.rxFreq,
-					  (unsigned long)ch.txFreq, ch.chMode, ch.power);
+		console_transport_printf("name=%.16s rx=%lu tx=%lu mode=%u pwr=%u\r\n", ch.name,
+					 (unsigned long)ch.rxFreq, (unsigned long)ch.txFreq,
+					 ch.chMode, ch.power);
 		console_transport_printf(
 			"rxTone=%s txTone=%s\r\n",
 			console_format_css(codeplug_decode_css(ch.rxTone), rx_buf, sizeof(rx_buf)),
 			console_format_css(codeplug_decode_css(ch.txTone), tx_buf, sizeof(tx_buf)));
-		console_transport_printf(
-			"lat=%s lon=%s\r\n",
-			console_format_latlon(codeplug_decode_latlon(lat_raw), lat_buf, sizeof(lat_buf)),
-			console_format_latlon(codeplug_decode_latlon(lon_raw), lon_buf, sizeof(lon_buf)));
+		console_transport_printf("lat=%s lon=%s\r\n",
+					 console_format_latlon(codeplug_decode_latlon(lat_raw),
+							       lat_buf, sizeof(lat_buf)),
+					 console_format_latlon(codeplug_decode_latlon(lon_raw),
+							       lon_buf, sizeof(lon_buf)));
 	} else if (strcmp(name, "contact") == 0) {
 		struct cp_contact c;
 
@@ -265,8 +266,8 @@ static void cmd_cp_region(char *args)
 			console_transport_puts("slot unused\r\n");
 			return;
 		}
-		console_transport_printf("name=%.16s tg=%lu type=%u\r\n",
-					  c.name, (unsigned long)c.tgNumber, c.callType);
+		console_transport_printf("name=%.16s tg=%lu type=%u\r\n", c.name,
+					 (unsigned long)c.tgNumber, c.callType);
 	} else if (strcmp(name, "zone") == 0) {
 		struct cp_zone z;
 		int channels_per_zone;
@@ -276,8 +277,8 @@ static void cmd_cp_region(char *args)
 			console_transport_printf("ERR: %d\r\n", rc);
 			return;
 		}
-		console_transport_printf("name=%.16s channels_per_zone=%d\r\n",
-					  z.name, channels_per_zone);
+		console_transport_printf("name=%.16s channels_per_zone=%d\r\n", z.name,
+					 channels_per_zone);
 	} else {
 		cp_dump_named_region(name);
 	}
@@ -294,15 +295,14 @@ static void cmd_cp_settings(void)
 		console_transport_printf("ERR: %d\r\n", rc);
 		return;
 	}
-	console_transport_printf("magic=0x%04lX (latest known=0x%04X)\r\n",
-				  (unsigned long)magic, CP_NV_SETTINGS_MAGIC_LATEST);
+	console_transport_printf("magic=0x%04lX (latest known=0x%04X)\r\n", (unsigned long)magic,
+				 CP_NV_SETTINGS_MAGIC_LATEST);
 
 	if (magic == CP_NV_SETTINGS_MAGIC_LATEST) {
 		struct cp_nv_settings *s = (struct cp_nv_settings *)buf;
 
-		console_transport_printf(
-			"backlightMode=%u backLightTimeout=%u txPowerLevel=%u\r\n",
-			s->backlightMode, s->backLightTimeout, s->txPowerLevel);
+		console_transport_printf("backlightMode=%u backLightTimeout=%u txPowerLevel=%u\r\n",
+					 s->backlightMode, s->backLightTimeout, s->txPowerLevel);
 	} else {
 		console_transport_puts("magic mismatch -- raw dump:\r\n");
 		console_hexdump(0, buf, MIN(sizeof(buf), (size_t)64));
@@ -327,8 +327,8 @@ static void cmd_cp_info(void)
 	if (rc < 0) {
 		console_transport_printf("device-info: ERR %d\r\n", rc);
 	} else {
-		console_transport_printf("model=%.8s sn=%.16s fw=%.8s\r\n",
-					  info.model, info.sn, info.firmwareVer);
+		console_transport_printf("model=%.8s sn=%.16s fw=%.8s\r\n", info.model, info.sn,
+					 info.firmwareVer);
 	}
 
 	static const uint8_t cal_marker[8] = {0x00, 0x25, 0x00, 0x40, 0x00, 0x45, 0x01, 0x40};
@@ -388,19 +388,20 @@ static void cmd_rtc(char *args)
 			console_transport_printf("ERR: %d\r\n", rc);
 		} else {
 			console_transport_printf("%04d-%02d-%02d %02d:%02d:%02d\r\n",
-						  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-						  tm.tm_hour, tm.tm_min, tm.tm_sec);
+						 tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+						 tm.tm_hour, tm.tm_min, tm.tm_sec);
 		}
 	} else if (strcmp(sub, "w") == 0) {
 		int year, mon, day, hour, min, sec;
 
 		if (!console_parse_dec(strtok(NULL, " \t"), &year) ||
-		    !console_parse_dec(strtok(NULL, " \t"), &mon)  ||
-		    !console_parse_dec(strtok(NULL, " \t"), &day)  ||
+		    !console_parse_dec(strtok(NULL, " \t"), &mon) ||
+		    !console_parse_dec(strtok(NULL, " \t"), &day) ||
 		    !console_parse_dec(strtok(NULL, " \t"), &hour) ||
-		    !console_parse_dec(strtok(NULL, " \t"), &min)  ||
+		    !console_parse_dec(strtok(NULL, " \t"), &min) ||
 		    !console_parse_dec(strtok(NULL, " \t"), &sec)) {
-			console_transport_puts("ERR: rtc w <year> <mon> <day> <hour> <min> <sec>\r\n");
+			console_transport_puts(
+				"ERR: rtc w <year> <mon> <day> <hour> <min> <sec>\r\n");
 			return;
 		}
 
@@ -423,12 +424,12 @@ static void cmd_reboot(char *args)
 }
 
 const struct console_cmd console_debug_cmds[] = {
-	{ "at",     "r <reg> | w <reg> <hi> <lo>   raw AT1846S register read/write", cmd_at },
-	{ "hc",     "r <page> <reg> | w <page> <reg> <val>   raw HR-C6000 register read/write", cmd_hc },
-	{ "rssi",   "AT1846S 0x1B noise/signal", cmd_rssi },
-	{ "cp",     "dump/list/region/settings/info ...   codeplug flash inspection", cmd_cp },
-	{ "rtc",    "r | w <Y> <M> <D> <h> <m> <s>   read/set the hardware RTC", cmd_rtc },
-	{ "reboot", "warm-reset the MCU", cmd_reboot },
+	{"at", "r <reg> | w <reg> <hi> <lo>   raw AT1846S register read/write", cmd_at},
+	{"hc", "r <page> <reg> | w <page> <reg> <val>   raw HR-C6000 register read/write", cmd_hc},
+	{"rssi", "AT1846S 0x1B noise/signal", cmd_rssi},
+	{"cp", "dump/list/region/settings/info ...   codeplug flash inspection", cmd_cp},
+	{"rtc", "r | w <Y> <M> <D> <h> <m> <s>   read/set the hardware RTC", cmd_rtc},
+	{"reboot", "warm-reset the MCU", cmd_reboot},
 };
 
 const size_t console_debug_cmd_count = ARRAY_SIZE(console_debug_cmds);

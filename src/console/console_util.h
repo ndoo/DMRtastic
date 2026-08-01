@@ -1,5 +1,7 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ */
 
 #ifndef DMRTASTIC_CONSOLE_UTIL_H_
 #define DMRTASTIC_CONSOLE_UTIL_H_
@@ -15,7 +17,8 @@ extern "C" {
 #endif
 
 /* Shared arg-parsing/formatting helpers used by both console_debug.c and
- * console_view.c command handlers. */
+ * console_view.c command handlers.
+ */
 
 /** Parse a bare hex byte (no 0x prefix); returns false on any malformed input. */
 bool console_parse_hex8(const char *s, uint8_t *out);

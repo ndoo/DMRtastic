@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "fm_vfo_controller.h"
 #include "model/codeplug.h"
@@ -12,37 +12,42 @@
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 /* Debounce before programming the AT1846S: coalesces a burst of Up/Down
- * clicks (or a VFO switch) into one retune instead of blocking I2C per detent. */
+ * clicks (or a VFO switch) into one retune instead of blocking I2C per detent.
+ */
 #define VFO_RETUNE_DEBOUNCE_MS 100
 
 /* Fallback band limits if codeplug_get_device_info() is unreadable -- typical MD-UV390
- * dual-band range, only ever used to keep stepping bounded, not presented as fact. */
+ * dual-band range, only ever used to keep stepping bounded, not presented as fact.
+ */
 #define VFO_BAND_VHF_MIN_MHZ_DEFAULT 136
 #define VFO_BAND_VHF_MAX_MHZ_DEFAULT 174
 #define VFO_BAND_UHF_MIN_MHZ_DEFAULT 400
 #define VFO_BAND_UHF_MAX_MHZ_DEFAULT 480
 
 /* Two live codeplug-shaped VFO copies -- index matches cp_nv_settings.currentVFONumber's
- * 0=A/1=B meaning. Edits are RAM-only until codeplug_write() is implemented (Milestone 10). */
+ * 0=A/1=B meaning. Edits are RAM-only until codeplug_write() is implemented (Milestone 10).
+ */
 static struct cp_channel s_vfo[2];
-static uint8_t  s_current_vfo;      /* 0=A, 1=B */
-static uint8_t  s_rssi;             /* last-read signal byte */
-static bool     s_squelch_open;
-static bool     s_retune_pending;   /* s_vfo[s_current_vfo].rxFreq not yet programmed into hardware */
-static int64_t  s_last_step_uptime; /* k_uptime_get() at the most recent step/switch */
+static uint8_t s_current_vfo; /* 0=A, 1=B */
+static uint8_t s_rssi;        /* last-read signal byte */
+static bool s_squelch_open;
+static bool s_retune_pending; /* s_vfo[s_current_vfo].rxFreq not yet programmed into hardware */
+static int64_t s_last_step_uptime; /* k_uptime_get() at the most recent step/switch */
 
 /* Hard tuning ceiling for both VFOs, from codeplug_get_device_info(); assumes VHF < UHF. */
 static uint32_t s_vhf_min_hz, s_vhf_max_hz, s_uhf_min_hz, s_uhf_max_hz;
 
 /* Direct-frequency digit entry -- a separate scratch buffer from s_vfo[], only applied to
  * the active VFO on a full, in-band 8-digit commit. s_entry_index == 0 means no entry is
- * in progress. */
+ * in progress.
+ */
 static uint8_t s_entry_digits[FM_VFO_ENTRY_DIGITS_MAX];
 static uint8_t s_entry_index;
 
 /** Clamps to the VHF/UHF hard limits and, if a step would leave the current band, jumps
  * straight to the near edge of the other band instead of drifting through the VHF/UHF
- * dead-air gap one increment at a time. */
+ * dead-air gap one increment at a time.
+ */
 static uint32_t band_limited_step(uint32_t current, uint32_t step, bool up)
 {
 	uint32_t next = up ? current + step : (current > step ? current - step : current);
@@ -65,7 +70,8 @@ static uint32_t band_limited_step(uint32_t current, uint32_t step, bool up)
 
 /** Seeds both VFO copies from the codeplug and arms an initial retune so hardware ends up
  * tuned to the active VFO before the next idle tick would otherwise pull a stale reading
- * back from it. Call once at startup, before the first fm_vfo_controller_tick(). */
+ * back from it. Call once at startup, before the first fm_vfo_controller_tick().
+ */
 void fm_vfo_controller_init(void)
 {
 	for (int i = 0; i < 2; i++) {
@@ -86,20 +92,21 @@ void fm_vfo_controller_init(void)
 
 		s_current_vfo = (nv->currentVFONumber <= 1) ? nv->currentVFONumber : 0;
 	} else {
-		LOG_WRN("codeplug nv-settings unavailable/stale (rc=%d magic=0x%08x); defaulting to VFO A",
-			rc, magic);
+		LOG_WRN("codeplug nv-settings unavail/stale (rc=%d magic=0x%08x), using VFO A", rc,
+			magic);
 		s_current_vfo = 0;
 	}
 
-	struct cp_device_info info = { 0 };
+	struct cp_device_info info = {0};
 	int info_rc = codeplug_get_device_info(&info);
 
 	/* An erased/blank device-info region (flash read as 0xFF) BCD-"decodes" to a
 	 * nonsensical 16665 MHz min==max for both bands rather than failing the read --
 	 * reject that (and any other min>=max garbage) the same way codeplug_decode_css()
-	 * already guards against the 0xFFFF erased sentinel, instead of trusting it blindly. */
+	 * already guards against the 0xFFFF erased sentinel, instead of trusting it blindly.
+	 */
 	bool info_valid = info_rc == 0 && info.minVHFFreq < info.maxVHFFreq &&
-			   info.minUHFFreq < info.maxUHFFreq;
+			  info.minUHFFreq < info.maxUHFFreq;
 
 	if (info_valid) {
 		s_vhf_min_hz = (uint32_t)info.minVHFFreq * 1000000UL;
@@ -109,7 +116,8 @@ void fm_vfo_controller_init(void)
 	} else {
 		LOG_WRN("codeplug_get_device_info() unusable (rc=%d vhf=%u-%u uhf=%u-%u); "
 			"falling back to default band limits",
-			info_rc, info.minVHFFreq, info.maxVHFFreq, info.minUHFFreq, info.maxUHFFreq);
+			info_rc, info.minVHFFreq, info.maxVHFFreq, info.minUHFFreq,
+			info.maxUHFFreq);
 		s_vhf_min_hz = VFO_BAND_VHF_MIN_MHZ_DEFAULT * 1000000UL;
 		s_vhf_max_hz = VFO_BAND_VHF_MAX_MHZ_DEFAULT * 1000000UL;
 		s_uhf_min_hz = VFO_BAND_UHF_MIN_MHZ_DEFAULT * 1000000UL;
@@ -147,7 +155,8 @@ void fm_vfo_controller_tick(void)
 				/* Shadow hasn't moved since target was captured -- now in sync. */
 				s_retune_pending = false;
 			}
-			/* else: shadow moved again mid-write -- stay pending for the newer target. */
+			/* else: shadow moved again mid-write -- stay pending for the newer target.
+			 */
 		}
 	} else {
 		uint32_t freq_hz = 0;
@@ -254,7 +263,8 @@ void fm_vfo_controller_entry_digit(int digit)
 		s_entry_index = 0;
 	} else {
 		/* Out of band -- back out just the last digit for a retry, rather than
-		 * clamping or discarding the whole entry. */
+		 * clamping or discarding the whole entry.
+		 */
 		s_entry_index--;
 	}
 }

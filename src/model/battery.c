@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "battery.h"
 
@@ -28,7 +28,8 @@ static const uint16_t ocv_table_mv[11] = {
 #define BATTERY_SAMPLE_PERIOD_MS 1000
 
 /* Settle delay: divider's ~7 kOhm Thevenin R against a worst-case 10uF sense cap gives tau~=70ms;
- * 5*tau before the first sample after channel setup. */
+ * 5*tau before the first sample after channel setup.
+ */
 #define BATTERY_SETTLE_MS 400
 
 static const struct adc_dt_spec s_adc = ADC_DT_SPEC_GET(BATTERY_NODE);

@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -14,18 +14,20 @@
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
-#define PMR446_CH1_HZ     446006250U  /* diagnostic channel */
-#define PMR446_VOLUME_MIN 7U   /* RX volume percent (0–100); 7 % ≈ native level 1 */
-#define PMR446_SQUELCH_TH 55U  /* AT1846S 0x1B lo-byte noise threshold;
-				* opens when noise < 55, closes when > 58. */
+#define PMR446_CH1_HZ     446006250U /* diagnostic channel */
+#define PMR446_VOLUME_MIN 7U         /* RX volume percent (0–100); 7 % ≈ native level 1 */
+#define PMR446_SQUELCH_TH                                                                          \
+	55U /* AT1846S 0x1B lo-byte noise threshold;                                               \
+	     * opens when noise < 55, closes when > 58.                                            \
+	     */
 
 /** Bring up the AT1846S/HR-C6000 pair and tune to PMR446 channel 1 FM RX. */
 static int radio_tune_pmr446_ch1(void)
 {
 	const struct device *trx = DEVICE_DT_GET(DT_NODELABEL(at1846s));
-	const struct device *bb  = DEVICE_DT_GET(DT_NODELABEL(hr_c6000));
+	const struct device *bb = DEVICE_DT_GET(DT_NODELABEL(hr_c6000));
 	const struct radio_trx_api *trx_api;
-	const struct radio_bb_api  *bb_api;
+	const struct radio_bb_api *bb_api;
 	int ret;
 
 	if (!device_is_ready(trx)) {
@@ -37,7 +39,7 @@ static int radio_tune_pmr446_ch1(void)
 		return -ENODEV;
 	}
 	trx_api = (const struct radio_trx_api *)trx->api;
-	bb_api  = (const struct radio_bb_api  *)bb->api;
+	bb_api = (const struct radio_bb_api *)bb->api;
 
 	ret = bb_api->set_fm_rx(bb);
 	if (ret < 0) {
@@ -90,7 +92,7 @@ static int radio_tune_pmr446_ch1(void)
 static int leds_init(void)
 {
 	static const struct gpio_dt_spec led_green = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
-	static const struct gpio_dt_spec led_red   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+	static const struct gpio_dt_spec led_red = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
 	int ret;
 
 	if (!gpio_is_ready_dt(&led_green) || !gpio_is_ready_dt(&led_red)) {

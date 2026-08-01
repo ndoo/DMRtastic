@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "console_log_backend.h"
 #include "console_transport.h"
@@ -12,7 +12,8 @@
 /* Zephyr log backend over the console UART. Log path is non-blocking: buffered here
  * (drop-oldest when full), drained by console_log_drain_thread_fn() through
  * console_transport's mutex-guarded TX path -- shared with interactive command
- * output, so a log line can never interleave mid-line with command output. */
+ * output, so a log line can never interleave mid-line with command output.
+ */
 
 #define CDC_LOG_BUF_SIZE 2048
 RING_BUF_DECLARE(cdc_log_ringbuf, CDC_LOG_BUF_SIZE);
@@ -41,11 +42,10 @@ static int cdc_log_out_func(uint8_t *data, size_t length, void *ctx)
 }
 
 static uint8_t cdc_log_out_scratch[128];
-LOG_OUTPUT_DEFINE(cdc_log_output, cdc_log_out_func,
-		  cdc_log_out_scratch, sizeof(cdc_log_out_scratch));
+LOG_OUTPUT_DEFINE(cdc_log_output, cdc_log_out_func, cdc_log_out_scratch,
+		  sizeof(cdc_log_out_scratch));
 
-static void cdc_backend_process(const struct log_backend *const backend,
-				union log_msg_generic *msg)
+static void cdc_backend_process(const struct log_backend *const backend, union log_msg_generic *msg)
 {
 	ARG_UNUSED(backend);
 	uint32_t flags = LOG_OUTPUT_FLAG_TIMESTAMP | LOG_OUTPUT_FLAG_LEVEL;
@@ -93,7 +93,5 @@ static void console_log_drain_thread_fn(void *p1, void *p2, void *p3)
 #define CONSOLE_LOG_DRAIN_THREAD_STACK_SIZE 1024
 #define CONSOLE_LOG_DRAIN_THREAD_PRIO       9
 
-K_THREAD_DEFINE(console_log_drain_thread_id,
-		CONSOLE_LOG_DRAIN_THREAD_STACK_SIZE,
-		console_log_drain_thread_fn, NULL, NULL, NULL,
-		CONSOLE_LOG_DRAIN_THREAD_PRIO, 0, 0);
+K_THREAD_DEFINE(console_log_drain_thread_id, CONSOLE_LOG_DRAIN_THREAD_STACK_SIZE,
+		console_log_drain_thread_fn, NULL, NULL, NULL, CONSOLE_LOG_DRAIN_THREAD_PRIO, 0, 0);

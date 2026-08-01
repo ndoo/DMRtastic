@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "channel_controller.h"
 #include "model/codeplug.h"
@@ -13,11 +13,12 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 #define CP_CHANNEL_INDEX_MAX 1024
 
 static struct cp_channel s_channel;
-static int               s_index_1based; /* 0 = no in-use channel found */
+static int s_index_1based; /* 0 = no in-use channel found */
 
 /* Direct channel-number digit entry -- a plain accumulator, not a digit array like
  * fm_vfo_controller's fixed-8-digit frequency entry (see channel_controller.h). 0 means no
- * entry is in progress. */
+ * entry is in progress.
+ */
 static int s_entry_value;
 
 /** Reads slot index_1based and reports whether it's a populated (in-use) channel. */
@@ -34,7 +35,8 @@ static bool load_channel(int index_1based, struct cp_channel *out)
 /** Programs rx frequency, bandwidth and CSS onto radio_state. TX power (ch->power) has no
  * radio_state hook to apply it to -- TX isn't wired to anything yet (Milestone 6 territory),
  * same gap as Milestone 2d's CSS work; it's only exposed via channel_controller_get_current()
- * for a future screen. */
+ * for a future screen.
+ */
 static void apply_to_radio(const struct cp_channel *ch)
 {
 	int rc_freq = radio_state_set_frequency(ch->rxFreq);
@@ -51,7 +53,8 @@ static void apply_to_radio(const struct cp_channel *ch)
 
 	/* TX first, RX second -- same AT1846S register-sharing ordering as
 	 * settings_controller.c's on_settings_changed(SETTINGS_KEY_CSS): RX is what's actually
-	 * in effect while not transmitting, so it must be the one applied last. */
+	 * in effect while not transmitting, so it must be the one applied last.
+	 */
 	struct cp_css tx_css = codeplug_decode_css(ch->txTone);
 	struct cp_css rx_css = codeplug_decode_css(ch->rxTone);
 	int rc_tx = radio_state_set_tx_css(&tx_css);
@@ -63,7 +66,8 @@ static void apply_to_radio(const struct cp_channel *ch)
 }
 
 /** Scans from start (exclusive) in the given direction, wrapping at the 1..1024 ends, for
- * the next in-use channel. Returns its index, or 0 if none exists anywhere in the table. */
+ * the next in-use channel. Returns its index, or 0 if none exists anywhere in the table.
+ */
 static int find_next_in_use(int start, bool up, struct cp_channel *out)
 {
 	int idx = start;
@@ -84,11 +88,13 @@ static int find_next_in_use(int start, bool up, struct cp_channel *out)
  * owns the radio for the FM VFO screen that's actually shown at boot. Caching here just makes
  * channel_controller_get_current()/_step() usable (e.g. from the console) without silently
  * retuning the radio out from under the active screen; channel_controller_step() is the first
- * point a caller has deliberately asked to switch to this controller's channel. */
+ * point a caller has deliberately asked to switch to this controller's channel.
+ */
 void channel_controller_init(void)
 {
 	/* find_next_in_use() scans from (exclusive) start, so start one below the range to
-	 * include index 1 on the very first "up" scan. */
+	 * include index 1 on the very first "up" scan.
+	 */
 	int idx = find_next_in_use(CP_CHANNEL_INDEX_MIN - 1, true, &s_channel);
 
 	if (idx == 0) {
@@ -150,7 +156,8 @@ void channel_controller_entry_digit(int digit)
 
 	if (candidate > CP_CHANNEL_INDEX_MAX) {
 		/* Whole-entry reset on overflow, not a last-digit backout -- see
-		 * channel_controller_entry_digit()'s doc comment. */
+		 * channel_controller_entry_digit()'s doc comment.
+		 */
 		s_entry_value = 0;
 		return;
 	}

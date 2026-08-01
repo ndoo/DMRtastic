@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -28,10 +28,9 @@ static void lvgl_thread(void *a, void *b, void *c)
 		return;
 	}
 
-	lv_theme_t *th = lv_theme_default_init(disp,
-					       theme_colors()->accent_primary,
-					       theme_colors()->accent_secondary,
-					       true, LV_FONT_DEFAULT);
+	lv_theme_t *th =
+		lv_theme_default_init(disp, theme_colors()->accent_primary,
+				      theme_colors()->accent_secondary, true, LV_FONT_DEFAULT);
 	lv_display_set_theme(disp, th);
 
 	app_init();
@@ -48,5 +47,5 @@ static void lvgl_thread(void *a, void *b, void *c)
 	}
 }
 
-K_THREAD_DEFINE(lvgl_tid, 8192, lvgl_thread, NULL, NULL, NULL,
-		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+K_THREAD_DEFINE(lvgl_tid, 8192, lvgl_thread, NULL, NULL, NULL, K_LOWEST_APPLICATION_THREAD_PRIO, 0,
+		0);

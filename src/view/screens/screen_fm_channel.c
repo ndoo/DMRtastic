@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "screen_fm_channel.h"
 #include "../status_bar.h"
@@ -18,22 +18,26 @@ typedef struct {
 	lv_obj_t *freq_label;
 	lv_obj_t *bw_label;
 	lv_obj_t *css_label;
-	int       shown_index; /* channel_controller's index as of the last paint; -1 forces
-				 * the first update() to paint unconditionally (0 is itself a
-				 * valid "no in-use channel" value from the controller). */
-	bool      shown_entry_active; /* whether the last paint was a digit-entry buffer */
+	/*
+	 * channel_controller's index as of the last paint; -1 forces the first
+	 * update() to paint unconditionally (0 is itself a valid "no in-use
+	 * channel" value from the controller).
+	 */
+	int shown_index;
+	bool shown_entry_active; /* whether the last paint was a digit-entry buffer */
 } fm_channel_data_t;
 
 static void fmt_freq(char *buf, size_t len, uint32_t hz)
 {
-	uint32_t mhz  = hz / 1000000U;
+	uint32_t mhz = hz / 1000000U;
 	uint32_t frac = (hz % 1000000U) / 10U; /* 5 digits: 100 kHz down to 10 Hz */
 
 	snprintf(buf, len, "%3" PRIu32 ".%05" PRIu32 " MHz", mhz, frac);
 }
 
 /** Same CTCSS/DCS text convention as settings_controller.c's CTCSS/DCS row and the
- * console's console_format_css() -- "103.5Hz", "D023N"/"D023I", or "Off". */
+ * console's console_format_css() -- "103.5Hz", "D023N"/"D023I", or "Off".
+ */
 static void fmt_css(char *buf, size_t len, struct cp_css css)
 {
 	if (css.type == CP_CSS_CTCSS) {
@@ -99,14 +103,16 @@ void screen_fm_channel_destroy(lv_obj_t *screen)
 }
 
 /** Repaints from channel_controller's cache; widgets only touched when the index (or the
- * digit-entry buffer) changes. */
+ * digit-entry buffer) changes.
+ */
 void screen_fm_channel_update(lv_obj_t *screen)
 {
 	fm_channel_data_t *d = lv_obj_get_user_data(screen);
 
 	/* Unconditional, like screen_fm_vfo_update()'s own trailing status_bar_set_mode()
 	 * call -- must run even when index hasn't changed (e.g. just switched onto this
-	 * screen from FM VFO via BACK), not just when the widgets below get repainted. */
+	 * screen from FM VFO via BACK), not just when the widgets below get repainted.
+	 */
 	status_bar_set_mode("CH");
 
 	if (channel_controller_entry_active()) {
@@ -115,7 +121,8 @@ void screen_fm_channel_update(lv_obj_t *screen)
 		/* Plain decimal, no leading-zero padding, unlike fm_vfo_controller's
 		 * fixed-width '-'-padded frequency entry -- channel numbers have no
 		 * fixed display width. Only the name_label swaps; freq/bw/css keep
-		 * showing the still-current channel underneath. */
+		 * showing the still-current channel underneath.
+		 */
 		snprintf(buf, sizeof(buf), "Ch %d", channel_controller_entry_value());
 		lv_label_set_text(d->name_label, buf);
 		d->shown_entry_active = true;
@@ -126,7 +133,8 @@ void screen_fm_channel_update(lv_obj_t *screen)
 
 	/* Force a repaint on the first inactive tick after an entry just ended (committed
 	 * or cancelled), even if the index didn't change (e.g. cancelled, or committed to
-	 * the channel already shown) -- same reasoning as screen_fm_vfo_update(). */
+	 * the channel already shown) -- same reasoning as screen_fm_vfo_update().
+	 */
 	if (d->shown_entry_active) {
 		d->shown_index = -1;
 	}

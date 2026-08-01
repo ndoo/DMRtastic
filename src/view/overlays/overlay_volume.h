@@ -1,5 +1,7 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ */
 
 /*
  * Volume overlay — transient popup shown when volume changes; created once, never deleted.

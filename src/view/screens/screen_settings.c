@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "screen_settings.h"
 #include "../theme.h"
@@ -17,27 +17,28 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 #define APP_VERSION_STR "0.1.0-dev"
 
 #define ROW_H     14 /* keypad/encoder nav only, no touch targets to preserve */
-#define ROW_PAD_X  4
-#define TAB_BAR_H  18
+#define ROW_PAD_X 4
+#define TAB_BAR_H 18
 
 #define SETTINGS_TAB_MAX_ROWS 20
 #define SETTINGS_TAB_RADIO    0
 #define SETTINGS_TAB_DISPLAY  1
 
 /* Two-level hierarchy: tab buttons and the active tab's rows never share group
- * membership (s_in_rows_level tracks which); see enter_rows_level()/exit_rows_level(). */
+ * membership (s_in_rows_level tracks which); see enter_rows_level()/exit_rows_level().
+ */
 static lv_obj_t *s_tabview;
-static bool       s_in_rows_level;
+static bool s_in_rows_level;
 
 static lv_obj_t *s_radio_rows[SETTINGS_TAB_MAX_ROWS];
 static lv_obj_t *s_radio_val_labels[SETTINGS_TAB_MAX_ROWS]; /* NULL where value_str is NULL */
 static const menu_item_t *s_radio_items;
-static uint8_t    s_radio_row_count;
+static uint8_t s_radio_row_count;
 
 static lv_obj_t *s_display_rows[SETTINGS_TAB_MAX_ROWS];
 static lv_obj_t *s_display_val_labels[SETTINGS_TAB_MAX_ROWS];
 static const menu_item_t *s_display_items;
-static uint8_t    s_display_row_count;
+static uint8_t s_display_row_count;
 
 /* Info tab labels — refreshed by screen_settings_update(). */
 static lv_obj_t *s_info_uptime_label;
@@ -58,7 +59,9 @@ static void set_row_text_focused(lv_obj_t *row, bool focused)
 	}
 }
 
-/** Row event callback: ENTER/click advances (dir=+1); FOCUSED scrolls the row into view and inverts its text. */
+/** Row event callback: ENTER/click advances (dir=+1); FOCUSED scrolls the row into view and inverts
+ * its text.
+ */
 static void row_cb(lv_event_t *e)
 {
 	lv_event_code_t code = lv_event_get_code(e);
@@ -66,7 +69,8 @@ static void row_cb(lv_event_t *e)
 
 	if (code == LV_EVENT_FOCUSED) {
 		/* LV_ANIM_OFF: animated scroll dropped presses arriving
-		 * mid-animation once there were 16 rows to scroll through. */
+		 * mid-animation once there were 16 rows to scroll through.
+		 */
 		lv_obj_scroll_to_view(row, LV_ANIM_OFF);
 		set_row_text_focused(row, true);
 		return;
@@ -96,12 +100,14 @@ static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_
 	lv_obj_set_scrollbar_mode(row, LV_SCROLLBAR_MODE_OFF);
 	lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
 	/* Label flex-grows into whatever the value label (content-sized)
-	 * doesn't need -- short values leave more room, per row. */
+	 * doesn't need -- short values leave more room, per row.
+	 */
 	lv_obj_set_layout(row, LV_LAYOUT_FLEX);
 	lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
 	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	/* Default theme's focus outline isn't visible enough here, so use an explicit
-	 * saturated background instead (text inverts via set_row_text_focused()). */
+	 * saturated background instead (text inverts via set_row_text_focused()).
+	 */
 	lv_obj_set_style_bg_color(row, theme_colors()->accent_secondary,
 				  LV_PART_MAIN | LV_STATE_FOCUSED);
 	/* Cast away const: user_data is read-only in the callback. */
@@ -110,13 +116,15 @@ static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_
 	lv_obj_add_event_cb(row, row_cb, LV_EVENT_DEFOCUSED, (void *)item);
 	/* Lets screen_settings_handle_action() map the focused object back to its menu_item_t. */
 	lv_obj_set_user_data(row, (void *)item);
-	/* Deliberately NOT added to the group here -- membership is managed by set_rows_in_group(). */
+	/* Deliberately NOT added to the group here -- membership is managed by set_rows_in_group().
+	 */
 
 	lv_obj_t *lbl = lv_label_create(row);
 	lv_label_set_text(lbl, item->label);
 	lv_obj_set_style_text_color(lbl, theme_colors()->text_primary, LV_PART_MAIN);
 	/* LONG_DOT truncates with an ellipsis if flex-grow leaves too little
-	 * room; needs a fixed height too, or it wraps instead of truncating. */
+	 * room; needs a fixed height too, or it wraps instead of truncating.
+	 */
 	lv_obj_set_flex_grow(lbl, 1);
 	lv_obj_set_height(lbl, ROW_H);
 	lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
@@ -132,9 +140,11 @@ static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_
 	return row;
 }
 
-/** Builds a tab's row list from items (truncated to SETTINGS_TAB_MAX_ROWS); returns the row count used. */
+/** Builds a tab's row list from items (truncated to SETTINGS_TAB_MAX_ROWS); returns the row count
+ * used.
+ */
 static uint8_t build_rows_tab(lv_obj_t *tab, const menu_item_t *items, uint8_t count,
-			       lv_obj_t **out_rows, lv_obj_t **out_val_labels)
+			      lv_obj_t **out_rows, lv_obj_t **out_val_labels)
 {
 	lv_obj_set_style_pad_all(tab, 0, LV_PART_MAIN);
 	/* Zero the default flex gap -- wastes space with up to 16 rows. */
@@ -144,8 +154,7 @@ static uint8_t build_rows_tab(lv_obj_t *tab, const menu_item_t *items, uint8_t c
 	lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
 
 	if (count > SETTINGS_TAB_MAX_ROWS) {
-		LOG_WRN("settings tab has %u rows, truncating to %u", count,
-			SETTINGS_TAB_MAX_ROWS);
+		LOG_WRN("settings tab has %u rows, truncating to %u", count, SETTINGS_TAB_MAX_ROWS);
 		count = SETTINGS_TAB_MAX_ROWS;
 	}
 
@@ -185,7 +194,8 @@ static void build_info_tab(lv_obj_t *tab)
 	}
 
 	s_info_uptime_label = lv_label_create(tab);
-	lv_obj_set_style_text_color(s_info_uptime_label, theme_colors()->text_primary, LV_PART_MAIN);
+	lv_obj_set_style_text_color(s_info_uptime_label, theme_colors()->text_primary,
+				    LV_PART_MAIN);
 
 	s_info_rssi_label = lv_label_create(tab);
 	lv_obj_set_style_text_color(s_info_rssi_label, theme_colors()->text_primary, LV_PART_MAIN);
@@ -197,7 +207,8 @@ static void build_info_tab(lv_obj_t *tab)
  * state-driven background, not set_row_text_focused()'s imperative LV_PART_MAIN text
  * color override, and lv_group_remove_obj() doesn't reliably fire LV_EVENT_DEFOCUSED to
  * reset it the normal way, which otherwise leaves whichever row had focus rendering its
- * text in the focus-background color -- invisible against the row's now-plain background. */
+ * text in the focus-background color -- invisible against the row's now-plain background.
+ */
 static void set_rows_in_group(lv_obj_t **rows, uint8_t count, bool add)
 {
 	for (uint8_t i = 0; i < count; i++) {
@@ -211,7 +222,9 @@ static void set_rows_in_group(lv_obj_t **rows, uint8_t count, bool add)
 	}
 }
 
-/** Adds/removes all tab buttons from the shared group, clearing stale focus state like set_rows_in_group(). */
+/** Adds/removes all tab buttons from the shared group, clearing stale focus state like
+ * set_rows_in_group().
+ */
 static void set_tab_buttons_in_group(bool add)
 {
 	uint32_t tab_count = lv_tabview_get_tab_count(s_tabview);
@@ -228,7 +241,9 @@ static void set_tab_buttons_in_group(bool add)
 	}
 }
 
-/** Descends into idx's row list: swaps group membership from tab buttons to that tab's rows and focuses the first one. */
+/** Descends into idx's row list: swaps group membership from tab buttons to that tab's rows and
+ * focuses the first one.
+ */
 static void enter_rows_level(uint32_t idx)
 {
 	set_tab_buttons_in_group(false);
@@ -242,7 +257,8 @@ static void enter_rows_level(uint32_t idx)
 		lv_group_focus_obj(s_display_rows[0]);
 	}
 	/* Info tab has no rows -- nothing to focus, but Back still ascends
-	 * fine since it doesn't depend on a focused object existing. */
+	 * fine since it doesn't depend on a focused object existing.
+	 */
 }
 
 static void tab_button_cb(lv_event_t *e)
@@ -257,7 +273,9 @@ bool screen_settings_in_rows_level(void)
 	return s_in_rows_level;
 }
 
-/** Ascends to the tab level: restores tab-button group membership and focus. No-op if already there. */
+/** Ascends to the tab level: restores tab-button group membership and focus. No-op if already
+ * there.
+ */
 void screen_settings_exit_rows_level(void)
 {
 	if (!s_in_rows_level) {
@@ -275,9 +293,9 @@ void screen_settings_exit_rows_level(void)
 }
 
 /** Builds the Radio/Display/Info tabview; starts at the tab level with tab buttons in the group. */
-lv_obj_t *screen_settings_create(lv_obj_t *parent,
-				  const menu_item_t *radio_items, uint8_t radio_count,
-				  const menu_item_t *display_items, uint8_t display_count)
+lv_obj_t *screen_settings_create(lv_obj_t *parent, const menu_item_t *radio_items,
+				 uint8_t radio_count, const menu_item_t *display_items,
+				 uint8_t display_count)
 {
 	lv_obj_t *tv = lv_tabview_create(parent);
 
@@ -288,20 +306,22 @@ lv_obj_t *screen_settings_create(lv_obj_t *parent,
 	lv_obj_set_style_bg_color(tv, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(tv, 0, LV_PART_MAIN);
 
-	lv_obj_t *radio_tab   = lv_tabview_add_tab(tv, "Radio");
+	lv_obj_t *radio_tab = lv_tabview_add_tab(tv, "Radio");
 	lv_obj_t *display_tab = lv_tabview_add_tab(tv, "Display");
-	lv_obj_t *info_tab    = lv_tabview_add_tab(tv, "Info");
+	lv_obj_t *info_tab = lv_tabview_add_tab(tv, "Info");
 
 	s_radio_items = radio_items;
-	s_radio_row_count = build_rows_tab(radio_tab, radio_items, radio_count,
-					    s_radio_rows, s_radio_val_labels);
+	s_radio_row_count = build_rows_tab(radio_tab, radio_items, radio_count, s_radio_rows,
+					   s_radio_val_labels);
 	s_display_items = display_items;
 	s_display_row_count = build_rows_tab(display_tab, display_items, display_count,
-					      s_display_rows, s_display_val_labels);
+					     s_display_rows, s_display_val_labels);
 	build_info_tab(info_tab);
 
-	/* Tab level is the initial state: tab buttons join the group, rows don't (see enter_rows_level()).
-	 * Each button also gets a click handler so descending works even when Green hits the already-active tab. */
+	/* Tab level is the initial state: tab buttons join the group, rows don't (see
+	 * enter_rows_level()). Each button also gets a click handler so descending works even when
+	 * Green hits the already-active tab.
+	 */
 	uint32_t tab_count = lv_tabview_get_tab_count(tv);
 
 	for (uint32_t i = 0; i < tab_count; i++) {

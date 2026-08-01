@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/watchdog.h>
@@ -9,8 +9,7 @@
 #define WDT_LED_TICKS       (1000 / WDT_TIMER_PERIOD_MS)
 
 static const struct device *wdt_dev = DEVICE_DT_GET(DT_NODELABEL(iwdg));
-static const struct gpio_dt_spec led0 =
-	GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+static const struct gpio_dt_spec led0 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 
 static uint32_t wdt_tick;
 
@@ -34,9 +33,7 @@ static int watchdog_init(void)
 {
 	gpio_pin_configure_dt(&led0, GPIO_OUTPUT_INACTIVE);
 	wdt_feed(wdt_dev, 0);
-	k_timer_start(&wdt_feed_timer,
-		      K_MSEC(WDT_TIMER_PERIOD_MS),
-		      K_MSEC(WDT_TIMER_PERIOD_MS));
+	k_timer_start(&wdt_feed_timer, K_MSEC(WDT_TIMER_PERIOD_MS), K_MSEC(WDT_TIMER_PERIOD_MS));
 	return 0;
 }
 

@@ -1,9 +1,11 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
-//
-// Text renderers over the same Controller/Model surface the LVGL screens use. No
-// <zephyr/device.h>, no DEVICE_DT_GET -- hardware access happens only inside the
-// controller/model calls below.
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+
+/*
+ * Text renderers over the same Controller/Model surface the LVGL screens use. No
+ * <zephyr/device.h>, no DEVICE_DT_GET -- hardware access happens only inside the
+ * controller/model calls below.
+ */
 
 #include "console_view.h"
 #include "console_util.h"
@@ -26,15 +28,15 @@ static void cmd_status(char *args)
 	uint32_t freq_hz = fm_vfo_controller_get_frequency_hz();
 
 	console_transport_printf("vfo=%c freq=%lu.%05lu MHz rssi=%u squelch=%s\r\n",
-				  fm_vfo_controller_get_current_vfo() == 0 ? 'A' : 'B',
-				  (unsigned long)(freq_hz / 1000000U),
-				  (unsigned long)(freq_hz % 1000000U),
-				  fm_vfo_controller_get_rssi(),
-				  fm_vfo_controller_get_squelch_open() ? "open" : "closed");
+				 fm_vfo_controller_get_current_vfo() == 0 ? 'A' : 'B',
+				 (unsigned long)(freq_hz / 1000000U),
+				 (unsigned long)(freq_hz % 1000000U), fm_vfo_controller_get_rssi(),
+				 fm_vfo_controller_get_squelch_open() ? "open" : "closed");
 }
 
 /** "channel [next|prev]" — steps (applying to radio_state) then prints channel_controller's
- * current channel, same fields screen_fm_channel.c will eventually paint (Milestone 3b). */
+ * current channel, same fields screen_fm_channel.c will eventually paint (Milestone 3b).
+ */
 static void cmd_channel(char *args)
 {
 	char *sub = strtok(args, " \t");
@@ -74,7 +76,7 @@ static void print_items(const char *group, const menu_item_t *items, uint8_t cou
 {
 	for (uint8_t i = 0; i < count; i++) {
 		console_transport_printf("%s.%s = %s\r\n", group, items[i].label,
-					  items[i].value_str ? items[i].value_str : "(action)");
+					 items[i].value_str ? items[i].value_str : "(action)");
 	}
 }
 
@@ -102,7 +104,8 @@ static const menu_item_t *find_item(const menu_item_t *items, uint8_t count, con
 }
 
 /** "settings set <radio|display> <label> up|down" — calls the matching row's on_select(),
- * the same callback screen_settings.c's row click/encoder-turn invokes. */
+ * the same callback screen_settings.c's row click/encoder-turn invokes.
+ */
 static void cmd_settings_set(char *args)
 {
 	char *group = strtok(args, " \t");
@@ -136,7 +139,7 @@ static void cmd_settings_set(char *args)
 
 	item->on_select(strcmp(dir_str, "up") == 0 ? 1 : -1);
 	console_transport_printf("%s.%s = %s\r\n", group, item->label,
-				  item->value_str ? item->value_str : "(action)");
+				 item->value_str ? item->value_str : "(action)");
 }
 
 /** "settings list" / "settings set ..." */
@@ -146,7 +149,8 @@ static void cmd_settings(char *args)
 	char *rest = strtok(NULL, "");
 
 	if (!sub) {
-		console_transport_puts("ERR: settings list | set radio|display <label> up|down\r\n");
+		console_transport_puts(
+			"ERR: settings list | set radio|display <label> up|down\r\n");
 		return;
 	}
 
@@ -155,7 +159,8 @@ static void cmd_settings(char *args)
 	} else if (strcmp(sub, "set") == 0) {
 		cmd_settings_set(rest ? rest : "");
 	} else {
-		console_transport_puts("ERR: settings list | set radio|display <label> up|down\r\n");
+		console_transport_puts(
+			"ERR: settings list | set radio|display <label> up|down\r\n");
 	}
 }
 
@@ -164,11 +169,12 @@ static void cmd_settings(char *args)
  * on_settings_changed() subscriber applies it to hardware and refreshes the Settings screen's
  * value_str, so this stays in sync with the LVGL UI instead of silently diverging from it.
  * (There's only one CSS setting, not independent TX/RX -- see settings_get_css()'s doc comment
- * -- so "tx"/"rx" here just describes which side the caller cares about, both set the same value.) */
+ * -- so "tx"/"rx" here just describes which side the caller cares about, both set the same value.)
+ */
 static void cmd_css(char *args)
 {
 	char *side = strtok(args, " \t");
-	char *sub  = strtok(NULL, " \t");
+	char *sub = strtok(NULL, " \t");
 	char *arg1 = strtok(NULL, " \t");
 	char *arg2 = strtok(NULL, " \t");
 
@@ -177,7 +183,7 @@ static void cmd_css(char *args)
 		return;
 	}
 
-	struct cp_css css = { .type = CP_CSS_NONE, .value = 0, .inverted = false };
+	struct cp_css css = {.type = CP_CSS_NONE, .value = 0, .inverted = false};
 
 	if (!sub || strcmp(sub, "off") == 0) {
 		/* css already CP_CSS_NONE. */
@@ -193,7 +199,8 @@ static void cmd_css(char *args)
 	} else if (strcmp(sub, "dcs") == 0) {
 		int code;
 
-		if (!console_parse_dec(arg1, &code) || !arg2 || (arg2[0] != 'n' && arg2[0] != 'i')) {
+		if (!console_parse_dec(arg1, &code) || !arg2 ||
+		    (arg2[0] != 'n' && arg2[0] != 'i')) {
 			console_transport_puts("ERR: css tx|rx dcs <code> n|i\r\n");
 			return;
 		}
@@ -213,10 +220,10 @@ static void cmd_css(char *args)
 }
 
 const struct console_cmd console_view_cmds[] = {
-	{ "status",   "current VFO/frequency/RSSI/squelch", cmd_status },
-	{ "channel",  "[next|prev] -- current/step FM channel", cmd_channel },
-	{ "settings", "list | set radio|display <label> up|down", cmd_settings },
-	{ "css",      "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css },
+	{"status", "current VFO/frequency/RSSI/squelch", cmd_status},
+	{"channel", "[next|prev] -- current/step FM channel", cmd_channel},
+	{"settings", "list | set radio|display <label> up|down", cmd_settings},
+	{"css", "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css},
 };
 
 const size_t console_view_cmd_count = ARRAY_SIZE(console_view_cmds);

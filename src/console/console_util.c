@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "console_util.h"
 #include "console_transport.h"
@@ -84,7 +84,7 @@ const char *console_format_latlon(int32_t v, char *buf, size_t buflen)
 	bool neg = v < 0;
 	int32_t abs_v = neg ? -v : v;
 
-	snprintf(buf, buflen, "%s%ld.%04ld", neg ? "-" : "",
-		 (long)(abs_v / 10000), (long)(abs_v % 10000));
+	snprintf(buf, buflen, "%s%ld.%04ld", neg ? "-" : "", (long)(abs_v / 10000),
+		 (long)(abs_v % 10000));
 	return buf;
 }

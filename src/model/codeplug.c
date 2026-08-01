@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include <errno.h>
 #include <stdbool.h>
@@ -20,8 +20,7 @@ LOG_MODULE_REGISTER(codeplug, LOG_LEVEL_INF);
 #define CP_OFFSET(prop) DT_PROP_BY_IDX(CP_MAP, prop, 0)
 #define CP_SIZE(prop)   DT_PROP_BY_IDX(CP_MAP, prop, 1)
 
-static const struct device *const cp_flash_dev =
-	DEVICE_DT_GET(DT_PHANDLE(CP_MAP, codeplug_flash));
+static const struct device *const cp_flash_dev = DEVICE_DT_GET(DT_PHANDLE(CP_MAP, codeplug_flash));
 
 int codeplug_raw_read(off_t offset, void *buf, size_t len)
 {
@@ -49,7 +48,9 @@ int codeplug_get_jedec_id(uint8_t id[3])
 
 /* ---- BCD field decoding -------------------------------------------------- */
 
-/* rxFreq/txFreq (deca-Hz), contact tgNumber, and device-info's freq range are stored BCD-encoded on flash. */
+/* rxFreq/txFreq (deca-Hz), contact tgNumber, and device-info's freq range are stored BCD-encoded on
+ * flash.
+ */
 static uint32_t cp_bcd_to_uint32(uint32_t bcd)
 {
 	uint32_t result = 0;
@@ -65,8 +66,8 @@ static uint32_t cp_bcd_to_uint32(uint32_t bcd)
 
 static uint32_t cp_byteswap32(uint32_t n)
 {
-	return ((n & 0x000000FFU) << 24) | ((n & 0x0000FF00U) << 8) |
-	       ((n & 0x00FF0000U) >> 8) | ((n & 0xFF000000U) >> 24);
+	return ((n & 0x000000FFU) << 24) | ((n & 0x0000FF00U) << 8) | ((n & 0x00FF0000U) >> 8) |
+	       ((n & 0xFF000000U) >> 24);
 }
 
 static void cp_decode_channel_freqs(struct cp_channel *ch)
@@ -75,7 +76,8 @@ static void cp_decode_channel_freqs(struct cp_channel *ch)
 	ch->txFreq = cp_bcd_to_uint32(ch->txFreq) * 10;
 }
 
-/* Unlike channel freq, device-info's band-limit BCD decodes to a plain whole-MHz integer, not x10. */
+/* Unlike channel freq, device-info's band-limit BCD decodes to a plain whole-MHz integer, not x10.
+ */
 static void cp_decode_device_info_freqs(struct cp_device_info *info)
 {
 	info->minUHFFreq = (uint16_t)cp_bcd_to_uint32(info->minUHFFreq);
@@ -88,7 +90,7 @@ static void cp_decode_device_info_freqs(struct cp_device_info *info)
 
 struct cp_css codeplug_decode_css(uint16_t raw)
 {
-	struct cp_css out = { .type = CP_CSS_NONE, .value = 0, .inverted = false };
+	struct cp_css out = {.type = CP_CSS_NONE, .value = 0, .inverted = false};
 
 	if (raw == 0x0000 || raw == 0xFFFF) {
 		return out;
@@ -127,7 +129,8 @@ int32_t codeplug_decode_latlon(const uint8_t raw[3])
 /* ---- Slot in-use checks --------------------------------------------------- */
 
 /* name[0] == 0xFF marks an erased/never-written slot. Cast avoids relying on plain char's
- * implementation-defined signedness when comparing against 0xFF. */
+ * implementation-defined signedness when comparing against 0xFF.
+ */
 static bool cp_slot_is_in_use(const char *name)
 {
 	return (uint8_t)name[0] != 0xFF;
@@ -215,7 +218,8 @@ int codeplug_get_nv_settings_raw(uint8_t *buf, size_t buf_len, uint32_t *magic_o
 		if (n >= sizeof(*magic_out)) {
 			memcpy(magic_out, buf, sizeof(*magic_out));
 		} else {
-			ret = codeplug_raw_read(CP_OFFSET(nv_settings), magic_out, sizeof(*magic_out));
+			ret = codeplug_raw_read(CP_OFFSET(nv_settings), magic_out,
+						sizeof(*magic_out));
 		}
 	}
 	return ret;
@@ -239,10 +243,10 @@ int codeplug_set_nv_settings(const struct cp_nv_settings *in)
 
 /* ---- Indexed regions ---------------------------------------------------- */
 
-#define CP_CHANNEL_SIZE        56
-#define CP_CHANNELS_PER_BANK   128
-#define CP_BANK_HEADER_SIZE    16
-#define CP_BANK_SIZE           (CP_BANK_HEADER_SIZE + CP_CHANNELS_PER_BANK * CP_CHANNEL_SIZE)
+#define CP_CHANNEL_SIZE      56
+#define CP_CHANNELS_PER_BANK 128
+#define CP_BANK_HEADER_SIZE  16
+#define CP_BANK_SIZE         (CP_BANK_HEADER_SIZE + CP_CHANNELS_PER_BANK * CP_CHANNEL_SIZE)
 
 int codeplug_get_channel(int index_1based, struct cp_channel *out)
 {
@@ -264,7 +268,8 @@ int codeplug_get_channel(int index_1based, struct cp_channel *out)
 #endif
 	} else {
 #if DT_NODE_HAS_PROP(CP_MAP, channels_ext)
-		base = CP_OFFSET(channels_ext) + (off_t)(bank - 1) * CP_BANK_SIZE + CP_BANK_HEADER_SIZE;
+		base = CP_OFFSET(channels_ext) + (off_t)(bank - 1) * CP_BANK_SIZE +
+		       CP_BANK_HEADER_SIZE;
 #else
 		return -ENOTSUP;
 #endif
@@ -285,8 +290,8 @@ int codeplug_get_contact(int index_1based, struct cp_contact *out)
 	if (index_1based < 1 || index_1based > 1024) {
 		return -EINVAL;
 	}
-	ret = codeplug_raw_read(CP_OFFSET(contacts) + (off_t)(index_1based - 1) * sizeof(*out),
-				 out, sizeof(*out));
+	ret = codeplug_raw_read(CP_OFFSET(contacts) + (off_t)(index_1based - 1) * sizeof(*out), out,
+				sizeof(*out));
 	if (ret == 0) {
 		out->tgNumber = cp_bcd_to_uint32(cp_byteswap32(out->tgNumber));
 	}
@@ -304,8 +309,9 @@ int codeplug_get_dtmf_contact(int index_1based, struct cp_dtmf_contact *out)
 	if (index_1based < 1 || index_1based > 63) {
 		return -EINVAL;
 	}
-	return codeplug_raw_read(CP_OFFSET(dtmf_contacts) + (off_t)(index_1based - 1) * sizeof(*out),
-				  out, sizeof(*out));
+	return codeplug_raw_read(CP_OFFSET(dtmf_contacts) +
+					 (off_t)(index_1based - 1) * sizeof(*out),
+				 out, sizeof(*out));
 #else
 	ARG_UNUSED(index_1based);
 	ARG_UNUSED(out);
@@ -320,7 +326,7 @@ int codeplug_get_aprs_config(int index_1based, struct cp_aprs_config *out)
 		return -EINVAL;
 	}
 	return codeplug_raw_read(CP_OFFSET(aprs_configs) + (off_t)(index_1based - 1) * sizeof(*out),
-				  out, sizeof(*out));
+				 out, sizeof(*out));
 #else
 	ARG_UNUSED(index_1based);
 	ARG_UNUSED(out);
@@ -336,10 +342,12 @@ int codeplug_get_rx_group(int index_1based, struct cp_rx_group *out)
 	if (index_1based < 1 || index_1based > 76) {
 		return -EINVAL;
 	}
-	/* Entries start after a reserved 128-byte length/in-use array (only first 76 bytes meaningful). */
+	/* Entries start after a reserved 128-byte length/in-use array (only first 76 bytes
+	 * meaningful).
+	 */
 	entries_base = CP_OFFSET(rx_group_lists) + 128;
-	return codeplug_raw_read(entries_base + (off_t)(index_1based - 1) * sizeof(*out),
-				  out, sizeof(*out));
+	return codeplug_raw_read(entries_base + (off_t)(index_1based - 1) * sizeof(*out), out,
+				 sizeof(*out));
 #else
 	ARG_UNUSED(index_1based);
 	ARG_UNUSED(out);
@@ -355,8 +363,8 @@ int codeplug_get_vfo_channel(int vfo_ab, struct cp_channel *out)
 	if (vfo_ab != 0 && vfo_ab != 1) {
 		return -EINVAL;
 	}
-	ret = codeplug_raw_read(CP_OFFSET(vfo_channels) + (off_t)vfo_ab * sizeof(*out),
-				 out, sizeof(*out));
+	ret = codeplug_raw_read(CP_OFFSET(vfo_channels) + (off_t)vfo_ab * sizeof(*out), out,
+				sizeof(*out));
 	if (ret == 0) {
 		cp_decode_channel_freqs(out);
 	}
@@ -374,8 +382,9 @@ int codeplug_get_quickkey(int index_0based, uint16_t *function_id_out)
 	if (index_0based < 0 || index_0based > 9) {
 		return -EINVAL;
 	}
-	return codeplug_raw_read(CP_OFFSET(quickkeys) + (off_t)index_0based * sizeof(*function_id_out),
-				  function_id_out, sizeof(*function_id_out));
+	return codeplug_raw_read(CP_OFFSET(quickkeys) +
+					 (off_t)index_0based * sizeof(*function_id_out),
+				 function_id_out, sizeof(*function_id_out));
 #else
 	ARG_UNUSED(index_0based);
 	ARG_UNUSED(function_id_out);
@@ -396,7 +405,9 @@ int codeplug_get_zone_inuse_bitmap(uint8_t bitmap[32])
 }
 
 #if DT_NODE_HAS_PROP(CP_MAP, zones_ext)
-/* At this offset, modern format has a channel-index high byte (0x00-0x04); legacy has zone-name text/0xFF fill. */
+/* At this offset, modern format has a channel-index high byte (0x00-0x04); legacy has zone-name
+ * text/0xFF fill.
+ */
 static bool cp_zone_is_modern_format(void)
 {
 	uint8_t probe;
@@ -430,7 +441,7 @@ int codeplug_get_zone(int slot_index_0based, struct cp_zone *out, int *channels_
 	ret = codeplug_raw_read(off, out->name, sizeof(out->name));
 	if (ret == 0) {
 		ret = codeplug_raw_read(off + sizeof(out->name), out->channels,
-					 (size_t)channels_per_zone * sizeof(out->channels[0]));
+					(size_t)channels_per_zone * sizeof(out->channels[0]));
 	}
 	if (channels_per_zone_out) {
 		*channels_per_zone_out = channels_per_zone;
@@ -450,14 +461,14 @@ int codeplug_list_regions(struct cp_region_info *out, int max)
 {
 	int n = 0;
 
-#define CP_ADD_REGION(name_str, prop)                  \
-	do {                                            \
-		if (n < max) {                          \
-			out[n].name = name_str;         \
-			out[n].offset = CP_OFFSET(prop); \
-			out[n].size = CP_SIZE(prop);    \
-			n++;                             \
-		}                                        \
+#define CP_ADD_REGION(name_str, prop)                                                              \
+	do {                                                                                       \
+		if (n < max) {                                                                     \
+			out[n].name = name_str;                                                    \
+			out[n].offset = CP_OFFSET(prop);                                           \
+			out[n].size = CP_SIZE(prop);                                               \
+			n++;                                                                       \
+		}                                                                                  \
 	} while (0)
 
 #if DT_NODE_HAS_PROP(CP_MAP, device_info)

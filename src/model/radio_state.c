@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "radio_state.h"
 
@@ -46,10 +46,18 @@ void radio_state_get_rssi(uint8_t *signal, uint8_t *noise)
  */
 static uint8_t rssi_to_bars(uint8_t signal)
 {
-	if (signal >= 100) return 4;
-	if (signal >= 70)  return 3;
-	if (signal >= 45)  return 2;
-	if (signal >= 20)  return 1;
+	if (signal >= 100) {
+		return 4;
+	}
+	if (signal >= 70) {
+		return 3;
+	}
+	if (signal >= 45) {
+		return 2;
+	}
+	if (signal >= 20) {
+		return 1;
+	}
 	return 0;
 }
 

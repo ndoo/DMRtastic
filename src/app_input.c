@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 /*
  * Input bridge — the only place raw Zephyr input events turn into ui_action_t.
@@ -17,7 +17,7 @@
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 #ifndef INPUT_KEY_NUMERIC_STAR
-#define INPUT_KEY_NUMERIC_STAR  0x20a
+#define INPUT_KEY_NUMERIC_STAR 0x20a
 #endif
 #ifndef INPUT_KEY_NUMERIC_POUND
 #define INPUT_KEY_NUMERIC_POUND 0x20b
@@ -32,12 +32,14 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 static int64_t s_sk1_press_uptime;
 
-/* Volume pot hysteresis: reports a new raw reading only once it moves far enough from the last applied one,
- * with a direction-aware exception so the range extremes stay reachable. See README for the full rationale. */
-#define VOLUME_RAW_MIN     DT_PROP(DT_NODELABEL(vol_axis_ch), in_min)
-#define VOLUME_RAW_MAX     DT_PROP(DT_NODELABEL(vol_axis_ch), in_max)
-#define VOLUME_HYSTERESIS  ((VOLUME_RAW_MAX - VOLUME_RAW_MIN) / 100)
-#define VOLUME_RAW_UNSET   0xFFFFU
+/* Volume pot hysteresis: reports a new raw reading only once it moves far enough from the last
+ * applied one, with a direction-aware exception so the range extremes stay reachable. See README
+ * for the full rationale.
+ */
+#define VOLUME_RAW_MIN    DT_PROP(DT_NODELABEL(vol_axis_ch), in_min)
+#define VOLUME_RAW_MAX    DT_PROP(DT_NODELABEL(vol_axis_ch), in_max)
+#define VOLUME_HYSTERESIS ((VOLUME_RAW_MAX - VOLUME_RAW_MIN) / 100)
+#define VOLUME_RAW_UNSET  0xFFFFU
 
 BUILD_ASSERT(VOLUME_RAW_MAX < VOLUME_RAW_UNSET, "vol_axis_ch in-max too large for sentinel");
 
@@ -46,19 +48,44 @@ static uint16_t s_last_stable_vol_raw = VOLUME_RAW_UNSET;
 static bool digit_action_for(uint16_t code, ui_action_t *action)
 {
 	switch (code) {
-	case INPUT_KEY_0: *action = UI_ACTION_KEY_0; return true;
-	case INPUT_KEY_1: *action = UI_ACTION_KEY_1; return true;
-	case INPUT_KEY_2: *action = UI_ACTION_KEY_2; return true;
-	case INPUT_KEY_3: *action = UI_ACTION_KEY_3; return true;
-	case INPUT_KEY_4: *action = UI_ACTION_KEY_4; return true;
-	case INPUT_KEY_5: *action = UI_ACTION_KEY_5; return true;
-	case INPUT_KEY_6: *action = UI_ACTION_KEY_6; return true;
-	case INPUT_KEY_7: *action = UI_ACTION_KEY_7; return true;
-	case INPUT_KEY_8: *action = UI_ACTION_KEY_8; return true;
-	case INPUT_KEY_9: *action = UI_ACTION_KEY_9; return true;
-	case INPUT_KEY_NUMERIC_STAR:  *action = UI_ACTION_KEY_STAR;  return true;
-	case INPUT_KEY_NUMERIC_POUND: *action = UI_ACTION_KEY_POUND; return true;
-	default: return false;
+	case INPUT_KEY_0:
+		*action = UI_ACTION_KEY_0;
+		return true;
+	case INPUT_KEY_1:
+		*action = UI_ACTION_KEY_1;
+		return true;
+	case INPUT_KEY_2:
+		*action = UI_ACTION_KEY_2;
+		return true;
+	case INPUT_KEY_3:
+		*action = UI_ACTION_KEY_3;
+		return true;
+	case INPUT_KEY_4:
+		*action = UI_ACTION_KEY_4;
+		return true;
+	case INPUT_KEY_5:
+		*action = UI_ACTION_KEY_5;
+		return true;
+	case INPUT_KEY_6:
+		*action = UI_ACTION_KEY_6;
+		return true;
+	case INPUT_KEY_7:
+		*action = UI_ACTION_KEY_7;
+		return true;
+	case INPUT_KEY_8:
+		*action = UI_ACTION_KEY_8;
+		return true;
+	case INPUT_KEY_9:
+		*action = UI_ACTION_KEY_9;
+		return true;
+	case INPUT_KEY_NUMERIC_STAR:
+		*action = UI_ACTION_KEY_STAR;
+		return true;
+	case INPUT_KEY_NUMERIC_POUND:
+		*action = UI_ACTION_KEY_POUND;
+		return true;
+	default:
+		return false;
 	}
 }
 
@@ -120,8 +147,7 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 	ARG_UNUSED(user_data);
 
 	if (evt->type == INPUT_EV_KEY && evt->value != 0) {
-		LOG_DBG("key event: code=%u value=%d sync=%d",
-			evt->code, evt->value, evt->sync);
+		LOG_DBG("key event: code=%u value=%d sync=%d", evt->code, evt->value, evt->sync);
 	}
 
 	switch (evt->type) {
@@ -131,9 +157,10 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 	case INPUT_EV_REL:
 		if (evt->code == INPUT_REL_Y) {
 			/* evt->value is the net quadrature count (whole detents) since the
-			 * last report; post one action per detent rather than dropping excess. */
-			ui_action_t action = evt->value > 0 ? UI_ACTION_ENCODER_CCW
-							    : UI_ACTION_ENCODER_CW;
+			 * last report; post one action per detent rather than dropping excess.
+			 */
+			ui_action_t action =
+				evt->value > 0 ? UI_ACTION_ENCODER_CCW : UI_ACTION_ENCODER_CW;
 			int32_t count = evt->value < 0 ? -evt->value : evt->value;
 
 			for (int32_t i = 0; i < count; i++) {
@@ -145,10 +172,10 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 		if (evt->code == INPUT_ABS_THROTTLE) {
 			uint16_t raw = (uint16_t)evt->value;
 			int diff = (int)raw - (int)s_last_stable_vol_raw;
-			bool climbing_to_max = diff > 0 &&
-				raw >= VOLUME_RAW_MAX - VOLUME_HYSTERESIS;
-			bool climbing_to_min = diff < 0 &&
-				raw <= VOLUME_RAW_MIN + VOLUME_HYSTERESIS;
+			bool climbing_to_max =
+				diff > 0 && raw >= VOLUME_RAW_MAX - VOLUME_HYSTERESIS;
+			bool climbing_to_min =
+				diff < 0 && raw <= VOLUME_RAW_MIN + VOLUME_HYSTERESIS;
 
 			LOG_DBG("vol_axis raw: %u (%u-%u)", raw, VOLUME_RAW_MIN, VOLUME_RAW_MAX);
 
@@ -156,8 +183,7 @@ static void ui_input_event_cb(struct input_event *evt, void *user_data)
 				diff = -diff;
 			}
 			if (s_last_stable_vol_raw == VOLUME_RAW_UNSET ||
-			    diff >= VOLUME_HYSTERESIS ||
-			    climbing_to_max || climbing_to_min) {
+			    diff >= VOLUME_HYSTERESIS || climbing_to_max || climbing_to_min) {
 				s_last_stable_vol_raw = raw;
 				app_post_volume_abs(raw);
 			}

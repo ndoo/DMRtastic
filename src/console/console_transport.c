@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "console_transport.h"
 #include "console_log_backend.h"
@@ -19,7 +19,8 @@
 #include <zephyr/logging/log.h>
 
 /* STM32F4 96-bit Unique Device ID (RM0090 §39.1, base 0x1FFF7A10).
- * Encodes wafer coordinates + lot number. */
+ * Encodes wafer coordinates + lot number.
+ */
 #define STM32_UID_BASE 0x1FFF7A10U
 
 LOG_MODULE_REGISTER(console_transport, LOG_LEVEL_INF);
@@ -28,7 +29,8 @@ static const struct device *const uart_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_ua
 
 /* ---- TX: single mutex-guarded path, shared by the log backend and every
  * interactive command's output -- prevents a log line and command output from
- * interleaving mid-line on the wire. */
+ * interleaving mid-line on the wire.
+ */
 
 static K_MUTEX_DEFINE(tx_mutex);
 
@@ -110,14 +112,13 @@ int console_transport_getc(void)
 }
 
 /* ---- USB CDC-ACM device lifecycle: descriptors, enumeration, DTR handshake.
- * Runs entirely in its own thread so a stalled host can't block other code. */
+ * Runs entirely in its own thread so a stalled host can't block other code.
+ */
 
 #define USB_VID 0x2fe3
 #define USB_PID 0x0001
 
-USBD_DEVICE_DEFINE(dmrtastic_usbd,
-		   DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),
-		   USB_VID, USB_PID);
+USBD_DEVICE_DEFINE(dmrtastic_usbd, DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)), USB_VID, USB_PID);
 
 USBD_DESC_LANG_DEFINE(usb_lang);
 USBD_DESC_MANUFACTURER_DEFINE(usb_mfr, "DMRtastic");
@@ -125,9 +126,7 @@ USBD_DESC_PRODUCT_DEFINE(usb_product, "DMRtastic");
 
 USBD_DESC_CONFIG_DEFINE(fs_cfg_desc, "FS Configuration");
 
-USBD_CONFIGURATION_DEFINE(usb_fs_config,
-			  USB_SCD_SELF_POWERED,
-			  125, &fs_cfg_desc);
+USBD_CONFIGURATION_DEFINE(usb_fs_config, USB_SCD_SELF_POWERED, 125, &fs_cfg_desc);
 
 K_SEM_DEFINE(dtr_sem, 0, 1);
 
@@ -221,8 +220,8 @@ static int usb_cdc_init(void)
 		return err;
 	}
 
-	usbd_device_set_code_triple(&dmrtastic_usbd, USBD_SPEED_FS,
-				    USB_BCC_MISCELLANEOUS, 0x02, 0x01);
+	usbd_device_set_code_triple(&dmrtastic_usbd, USBD_SPEED_FS, USB_BCC_MISCELLANEOUS, 0x02,
+				    0x01);
 
 	err = usbd_msg_register_cb(&dmrtastic_usbd, usb_msg_cb);
 	if (err) {
@@ -283,8 +282,7 @@ static void usb_cdc_thread_fn(void *p1, void *p2, void *p3)
 		return;
 	}
 
-	LOG_INF("STM32 UID: %08x %08x %08x",
-		(unsigned int)sys_read32(STM32_UID_BASE + 0x00U),
+	LOG_INF("STM32 UID: %08x %08x %08x", (unsigned int)sys_read32(STM32_UID_BASE + 0x00U),
 		(unsigned int)sys_read32(STM32_UID_BASE + 0x04U),
 		(unsigned int)sys_read32(STM32_UID_BASE + 0x08U));
 
@@ -296,7 +294,5 @@ static void usb_cdc_thread_fn(void *p1, void *p2, void *p3)
 #define USB_CDC_THREAD_STACK_SIZE 2048
 #define USB_CDC_THREAD_PRIO       7
 
-K_THREAD_DEFINE(usb_cdc_thread_id,
-		USB_CDC_THREAD_STACK_SIZE,
-		usb_cdc_thread_fn, NULL, NULL, NULL,
+K_THREAD_DEFINE(usb_cdc_thread_id, USB_CDC_THREAD_STACK_SIZE, usb_cdc_thread_fn, NULL, NULL, NULL,
 		USB_CDC_THREAD_PRIO, 0, 0);

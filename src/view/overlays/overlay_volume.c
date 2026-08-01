@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "overlay_volume.h"
 #include "../theme.h"
@@ -9,13 +9,13 @@
 
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
-#define OVERLAY_W        140
-#define OVERLAY_H         36
-#define DISMISS_MS      2000
+#define OVERLAY_W  140
+#define OVERLAY_H  36
+#define DISMISS_MS 2000
 
-static lv_obj_t  *s_panel;
-static lv_obj_t  *s_label;
-static lv_obj_t  *s_bar;
+static lv_obj_t *s_panel;
+static lv_obj_t *s_label;
+static lv_obj_t *s_bar;
 static lv_timer_t *s_dismiss_timer;
 
 static void dismiss_cb(lv_timer_t *t)

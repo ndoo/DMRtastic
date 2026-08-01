@@ -1,5 +1,7 @@
-// Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ */
 
 /*
  * Quick menu overlay — floating shortcut list, triggered by SK1 long-press (rows are placeholders).
@@ -18,7 +20,8 @@ void overlay_quickmenu_create(void);
 void overlay_quickmenu_show(void);
 void overlay_quickmenu_hide(void);
 
-/** True while visible; ui.c uses this so Back closes the overlay instead of the frame underneath. */
+/** True while visible; ui.c uses this so Back closes the overlay instead of the frame underneath.
+ */
 bool overlay_quickmenu_is_active(void);
 
 #endif /* DMRTASTIC_UI_OVERLAY_QUICKMENU_H_ */
