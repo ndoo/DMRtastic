@@ -14,6 +14,7 @@
 #include "view/screens/screen_boot.h"
 #include "view/screens/screen_fm_vfo.h"
 #include "view/screens/screen_fm_channel.h"
+#include "view/screens/screen_zones.h"
 #include "view/screens/screen_settings.h"
 #include "controller/settings_controller.h"
 #include "controller/fm_vfo_controller.h"
@@ -124,17 +125,44 @@ static void fm_channel_handle_action(lv_obj_t *screen, ui_action_t action)
 	}
 }
 
+/** Up/Down and the encoder step through the codeplug's in-use zone slots. OK selects the
+ * shown zone — turns on channel_controller's zone-scoped stepping (Milestone 4b) so FM
+ * Channel mode narrows to this zone's membership, then returns to it. Back (handled
+ * generically by dispatch_action()'s UI_ACTION_BACK chain, no case needed here) returns
+ * without selecting, leaving channel_controller's zone-scope state exactly as it was before
+ * this screen was entered.
+ */
+static void zones_handle_action(lv_obj_t *screen, ui_action_t action)
+{
+	switch (action) {
+	case UI_ACTION_OK:
+		channel_controller_set_zone_scoped(true);
+		app_pop_screen();
+		break;
+	case UI_ACTION_UP:
+	case UI_ACTION_ENCODER_CW:
+		screen_zones_step(screen, true);
+		break;
+	case UI_ACTION_DOWN:
+	case UI_ACTION_ENCODER_CCW:
+		screen_zones_step(screen, false);
+		break;
+	default:
+		break;
+	}
+}
+
 static const frame_ops_t frame_ops[SCREEN_COUNT] = {
 	[SCREEN_FM_VFO] = {screen_fm_vfo_create, screen_fm_vfo_update, fm_vfo_handle_action},
 	[SCREEN_FM_CHANNEL] = {screen_fm_channel_create, screen_fm_channel_update,
 			       fm_channel_handle_action},
 	[SCREEN_SETTINGS] = {settings_controller_create_screen, screen_settings_update,
 			     screen_settings_handle_action},
+	[SCREEN_ZONES] = {screen_zones_create, screen_zones_update, zones_handle_action},
 	/* stubs — not implemented */
 	[SCREEN_DMR_VFO] = {NULL, NULL, NULL},
 	[SCREEN_DMR_CHANNEL] = {NULL, NULL, NULL},
 	[SCREEN_CONTACTS] = {NULL, NULL, NULL},
-	[SCREEN_ZONES] = {NULL, NULL, NULL},
 };
 
 /* ---------- Frame state -----------------------------------------------------
@@ -420,6 +448,19 @@ static void dispatch_action(ui_action_t action)
 		overlay_quickmenu_show();
 		break;
 	case UI_ACTION_SK2:
+		/* Reachability entry point for the Zones screen (Milestone 4c) -- matches
+		 * OpenGD77's own choice of a dedicated screen over a quick-menu row
+		 * (menuZoneList.c), reusing this key since it's the one short-press action
+		 * already dispatched with no assigned behavior. Only from FM Channel mode,
+		 * per the checklist wording ("reachable from FM Channel mode") -- not from
+		 * FM VFO or anywhere else.
+		 */
+		if (s_frame_top >= 0 && s_frame_stack[s_frame_top] == SCREEN_FM_CHANNEL) {
+			app_push_screen(SCREEN_ZONES);
+		} else {
+			LOG_INF("action %d: not yet implemented", action);
+		}
+		break;
 	case UI_ACTION_KEY_POUND:
 		LOG_INF("action %d: not yet implemented", action);
 		break;
@@ -501,6 +542,8 @@ void app_init(void)
 	lv_obj_add_flag(s_frame_obj[SCREEN_FM_CHANNEL], LV_OBJ_FLAG_HIDDEN);
 	s_frame_obj[SCREEN_SETTINGS] = frame_ops[SCREEN_SETTINGS].create(s_content);
 	lv_obj_add_flag(s_frame_obj[SCREEN_SETTINGS], LV_OBJ_FLAG_HIDDEN);
+	s_frame_obj[SCREEN_ZONES] = frame_ops[SCREEN_ZONES].create(s_content);
+	lv_obj_add_flag(s_frame_obj[SCREEN_ZONES], LV_OBJ_FLAG_HIDDEN);
 
 	/* Start 200 ms update timer */
 	lv_timer_create(update_timer_cb, 200, NULL);
