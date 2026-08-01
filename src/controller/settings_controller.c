@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "settings_controller.h"
+#include "backlight.h"
 #include "view/screens/screen_settings.h"
 
 #include "model/radio_settings.h"
@@ -11,7 +12,6 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/display.h>
 #include <zephyr/drivers/gpio.h>
 #include <lvgl.h>
 #include <stdio.h>
@@ -314,13 +314,8 @@ static void on_settings_changed(enum settings_key key)
 		break;
 	case SETTINGS_KEY_BRIGHTNESS: {
 		uint8_t pct = settings_get_brightness_pct();
-		const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
-		int rc = display_set_brightness(
-			disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)pct * 255, 100));
 
-		if (rc < 0) {
-			LOG_WRN("display_set_brightness(%u%%) failed: %d", pct, rc);
-		}
+		backlight_set_pct(pct, false);
 		snprintf(s_brightness_val_buf, sizeof(s_brightness_val_buf), "%u%%", pct);
 		break;
 	}

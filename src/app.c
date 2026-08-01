@@ -7,6 +7,7 @@
  */
 
 #include "app.h"
+#include "backlight.h"
 #include "view/theme.h"
 #include "view/status_bar.h"
 #include "view/overlays/overlay_volume.h"
@@ -30,7 +31,6 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/display.h>
 #include <lvgl.h>
 #include <lvgl_input_device.h>
 
@@ -267,16 +267,14 @@ void app_post_volume_abs(uint16_t raw)
 static int64_t s_last_activity_ms;
 static bool s_backlight_dimmed;
 
-/** Applies either the dimmed off-level or full brightness to the backlight PWM. */
+/** Fades to either the dimmed off-level or full brightness. Only the automatic timeout
+ * dim-out (dim == true) uses the slow fade; undimming on activity is always fast.
+ */
 static void backlight_apply_dim(bool dim)
 {
 	uint8_t pct = dim ? settings_get_backlight_off_pct() : settings_get_brightness_pct();
-	const struct device *disp = DEVICE_DT_GET(DT_NODELABEL(hx8353e));
-	int rc = display_set_brightness(disp, (uint8_t)DIV_ROUND_CLOSEST((uint32_t)pct * 255, 100));
 
-	if (rc < 0) {
-		LOG_WRN("display_set_brightness(%u%%) failed: %d", pct, rc);
-	}
+	backlight_set_pct(pct, dim);
 	s_backlight_dimmed = dim;
 }
 
@@ -522,6 +520,15 @@ static void dispatch_action(ui_action_t action)
 /** Builds the screen, status bar, overlays, and static frames; starts the update timer. */
 void app_init(void)
 {
+	/* Forces the backlight dark immediately -- the hx8353e driver's own boot default is
+	 * full brightness (display_hx8353e.c), which would otherwise stay lit at 100% for the
+	 * whole rest of app_init() (screen/status bar/overlay construction, settings load from
+	 * the codeplug) before anything here gets a chance to apply the real saved level.
+	 * settings_controller_init() below fades up from this to the saved brightness once it
+	 * knows what that is.
+	 */
+	backlight_init();
+
 	lv_obj_t *scr = lv_obj_create(NULL);
 	lv_obj_set_style_bg_color(scr, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
