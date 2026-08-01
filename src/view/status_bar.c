@@ -50,11 +50,14 @@ void status_bar_create(lv_obj_t *parent)
 	lv_obj_align(s_scan_label, LV_ALIGN_CENTER, 0, 0);
 	lv_obj_add_flag(s_scan_label, LV_OBJ_FLAG_HIDDEN);
 
-	/* TX indicator — next to the mode label, hidden by default */
+	/* TX indicator — positioned relative to the mode label's actual rendered width (see
+	 * status_bar_set_mode()), not a fixed offset, since mode text ranges from "FM" to
+	 * "CH 123" -- hidden by default.
+	 */
 	s_tx_label = lv_label_create(parent);
 	lv_label_set_text(s_tx_label, "TX");
 	lv_obj_set_style_text_color(s_tx_label, theme_colors()->status_error, LV_PART_MAIN);
-	lv_obj_align(s_tx_label, LV_ALIGN_LEFT_MID, 20, 0);
+	lv_obj_align_to(s_tx_label, s_mode_label, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 	lv_obj_add_flag(s_tx_label, LV_OBJ_FLAG_HIDDEN);
 
 	/* RSSI bars — right zone, bottom-aligned, ascending heights */
@@ -135,6 +138,10 @@ void status_bar_update(void)
 void status_bar_set_mode(const char *mode)
 {
 	lv_label_set_text(s_mode_label, mode);
+	/* Re-tracks the mode label's width, which changes with its text (e.g. "FM" vs.
+	 * "CH 123"), so the TX indicator doesn't overlap it.
+	 */
+	lv_obj_align_to(s_tx_label, s_mode_label, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 }
 
 void status_bar_set_tx(bool active)

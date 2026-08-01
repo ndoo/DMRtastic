@@ -175,7 +175,7 @@ void screen_fm_vfo_update(lv_obj_t *screen)
 
 	lv_label_set_text(d->bw_label, settings_get_bandwidth_is_25k() ? "25K" : "12.5K");
 
-	status_bar_set_mode(fm_vfo_controller_get_current_vfo() == 0 ? "FM A" : "FM B");
+	status_bar_set_mode(fm_vfo_controller_get_current_vfo() == 0 ? "VFO A" : "VFO B");
 }
 
 /** Forwards a step to the controller; see fm_vfo_controller_step(). */

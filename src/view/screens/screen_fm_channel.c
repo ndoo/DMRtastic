@@ -118,11 +118,21 @@ void screen_fm_channel_update(lv_obj_t *screen)
 	 */
 	scan_controller_tick();
 
-	/* Unconditional, like screen_fm_vfo_update()'s own trailing status_bar_set_mode()
-	 * call -- must run even when index hasn't changed (e.g. just switched onto this
-	 * screen from FM VFO via BACK), not just when the widgets below get repainted.
+	/* Fetched here (not just below, where it's also needed for the name/freq/bw/css
+	 * repaint) so the status bar's channel number is unconditional too -- like
+	 * screen_fm_vfo_update()'s own trailing status_bar_set_mode() call, this must run
+	 * even when the index hasn't changed (e.g. just switched onto this screen from FM
+	 * VFO via BACK), not just when the widgets below get repainted.
 	 */
-	status_bar_set_mode("CH");
+	int index = channel_controller_get_current_index();
+	char mode_buf[16];
+
+	if (index > 0) {
+		snprintf(mode_buf, sizeof(mode_buf), "CH %d", index);
+	} else {
+		snprintf(mode_buf, sizeof(mode_buf), "CH");
+	}
+	status_bar_set_mode(mode_buf);
 
 	if (channel_controller_entry_active()) {
 		char buf[24];
@@ -137,8 +147,6 @@ void screen_fm_channel_update(lv_obj_t *screen)
 		d->shown_entry_active = true;
 		return;
 	}
-
-	int index = channel_controller_get_current_index();
 
 	/* Force a repaint on the first inactive tick after an entry just ended (committed
 	 * or cancelled), even if the index didn't change (e.g. cancelled, or committed to
@@ -165,7 +173,7 @@ void screen_fm_channel_update(lv_obj_t *screen)
 		return;
 	}
 
-	snprintf(buf, sizeof(buf), "%03d %.16s", index, ch.name);
+	snprintf(buf, sizeof(buf), "%.16s", ch.name);
 	lv_label_set_text(d->name_label, buf);
 
 	fmt_freq(buf, sizeof(buf), ch.rxFreq);
