@@ -14,7 +14,10 @@
 #include <stdbool.h>
 #include <lvgl.h>
 
-#define UI_STATUS_BAR_HEIGHT 14
+/** Height for the fixed status bar strip: one line of UI_FONT_DEFAULT plus margin (see
+ * fonts.h ui_font_row_height()).
+ */
+int32_t status_bar_height(void);
 
 /** Builds the status bar widgets under parent; call once from app_init(). */
 void status_bar_create(lv_obj_t *parent);

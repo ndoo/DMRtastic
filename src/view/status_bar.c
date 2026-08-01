@@ -3,6 +3,7 @@
 
 #include "status_bar.h"
 #include "theme.h"
+#include "fonts/fonts.h"
 #include "app.h"
 #include "model/battery.h"
 #include "model/radio_settings.h"
@@ -27,6 +28,11 @@ static lv_obj_t *s_gps_dot;
 static lv_obj_t *s_bat_label;
 
 static uint8_t s_last_bars = 0xFF; /* force first draw */
+
+int32_t status_bar_height(void)
+{
+	return ui_font_row_height(&UI_FONT_DEFAULT);
+}
 
 /** Builds the status bar's mode/scan/TX labels, RSSI bars, GPS dot, and battery label. */
 void status_bar_create(lv_obj_t *parent)

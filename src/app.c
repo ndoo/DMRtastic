@@ -529,8 +529,10 @@ void app_init(void)
 	lv_screen_load(scr);
 
 	/* Status bar — fixed height strip at top */
+	int32_t status_bar_h = status_bar_height();
+
 	s_status_bar_obj = lv_obj_create(scr);
-	lv_obj_set_size(s_status_bar_obj, lv_pct(100), UI_STATUS_BAR_HEIGHT);
+	lv_obj_set_size(s_status_bar_obj, lv_pct(100), status_bar_h);
 	lv_obj_set_pos(s_status_bar_obj, 0, 0);
 	lv_obj_set_style_bg_color(s_status_bar_obj, theme_colors()->surface, LV_PART_MAIN);
 	lv_obj_set_style_border_width(s_status_bar_obj, 0, LV_PART_MAIN);
@@ -542,8 +544,8 @@ void app_init(void)
 	/* Content container — fills remaining height below status bar */
 	int32_t scr_h = lv_obj_get_height(scr);
 	s_content = lv_obj_create(scr);
-	lv_obj_set_size(s_content, lv_pct(100), scr_h - UI_STATUS_BAR_HEIGHT);
-	lv_obj_set_pos(s_content, 0, UI_STATUS_BAR_HEIGHT);
+	lv_obj_set_size(s_content, lv_pct(100), scr_h - status_bar_h);
+	lv_obj_set_pos(s_content, 0, status_bar_h);
 	lv_obj_set_style_bg_color(s_content, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(s_content, 0, LV_PART_MAIN);
 	lv_obj_set_style_radius(s_content, 0, LV_PART_MAIN);

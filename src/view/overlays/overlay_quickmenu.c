@@ -3,6 +3,7 @@
 
 #include "overlay_quickmenu.h"
 #include "../theme.h"
+#include "../fonts/fonts.h"
 #include "controller/fm_vfo_controller.h"
 #include "controller/settings_controller.h"
 
@@ -14,8 +15,6 @@
 LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 #define OVERLAY_W  140
-#define ROW_H      18
-#define OVERLAY_H  (ROW_H * ARRAY_SIZE(s_row_labels))
 #define DISMISS_MS 4000
 
 static const char *const s_row_labels[] = {
@@ -89,9 +88,10 @@ static void row_cb(lv_event_t *e)
 void overlay_quickmenu_create(void)
 {
 	lv_obj_t *layer = lv_layer_top();
+	int32_t row_h = ui_font_row_height(&UI_FONT_DEFAULT);
 
 	s_panel = lv_obj_create(layer);
-	lv_obj_set_size(s_panel, OVERLAY_W, OVERLAY_H);
+	lv_obj_set_size(s_panel, OVERLAY_W, row_h * (int32_t)ARRAY_SIZE(s_row_labels));
 	lv_obj_align(s_panel, LV_ALIGN_CENTER, 0, 0);
 	lv_obj_set_style_bg_color(s_panel, theme_colors()->surface, LV_PART_MAIN);
 	lv_obj_set_style_bg_opa(s_panel, LV_OPA_90, LV_PART_MAIN);
@@ -102,8 +102,8 @@ void overlay_quickmenu_create(void)
 
 	for (size_t i = 0; i < ARRAY_SIZE(s_row_labels); i++) {
 		lv_obj_t *row = lv_obj_create(s_panel);
-		lv_obj_set_size(row, lv_pct(100), ROW_H);
-		lv_obj_set_pos(row, 0, (int32_t)(i * ROW_H));
+		lv_obj_set_size(row, lv_pct(100), row_h);
+		lv_obj_set_pos(row, 0, (int32_t)i * row_h);
 		lv_obj_set_style_bg_color(row, theme_colors()->surface, LV_PART_MAIN);
 		lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
 		lv_obj_set_style_pad_hor(row, 4, LV_PART_MAIN);
@@ -123,6 +123,7 @@ void overlay_quickmenu_create(void)
 		lv_obj_t *lbl = lv_label_create(row);
 		lv_label_set_text(lbl, s_row_labels[i]);
 		lv_obj_set_style_text_color(lbl, theme_colors()->text_primary, LV_PART_MAIN);
+		lv_obj_set_style_text_font(lbl, &UI_FONT_DEFAULT, LV_PART_MAIN);
 		lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
 		s_rows[i] = row;

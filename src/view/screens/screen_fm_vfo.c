@@ -4,6 +4,7 @@
 #include "screen_fm_vfo.h"
 #include "../status_bar.h"
 #include "../theme.h"
+#include "../fonts/fonts.h"
 #include "app.h"
 #include "controller/fm_vfo_controller.h"
 #include "controller/scan_controller.h"
@@ -75,7 +76,7 @@ lv_obj_t *screen_fm_vfo_create(lv_obj_t *parent)
 	/* Frequency display — large, top-centre */
 	d->freq_label = lv_label_create(scr);
 	lv_obj_set_style_text_color(d->freq_label, theme_colors()->text_primary, LV_PART_MAIN);
-	lv_obj_set_style_text_font(d->freq_label, &lv_font_montserrat_20, LV_PART_MAIN);
+	lv_obj_set_style_text_font(d->freq_label, &UI_FONT_LARGE, LV_PART_MAIN);
 	lv_label_set_text(d->freq_label, "----.----- MHz");
 	lv_obj_align(d->freq_label, LV_ALIGN_TOP_MID, 0, 10);
 

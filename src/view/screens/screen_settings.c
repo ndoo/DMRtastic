@@ -3,6 +3,7 @@
 
 #include "screen_settings.h"
 #include "../theme.h"
+#include "../fonts/fonts.h"
 #include "app.h"
 #include "model/radio_state.h"
 
@@ -16,9 +17,7 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 #define APP_VERSION_STR "0.1.0-dev"
 
-#define ROW_H     14 /* keypad/encoder nav only, no touch targets to preserve */
 #define ROW_PAD_X 4
-#define TAB_BAR_H 18
 
 #define SETTINGS_TAB_MAX_ROWS 20
 #define SETTINGS_TAB_RADIO    0
@@ -92,7 +91,10 @@ static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_
 {
 	lv_obj_t *row = lv_obj_create(tab);
 
-	lv_obj_set_size(row, lv_pct(100), ROW_H);
+	/* keypad/encoder nav only, no touch targets to preserve -- row only needs to fit
+	 * one line of UI_FONT_DEFAULT.
+	 */
+	lv_obj_set_size(row, lv_pct(100), ui_font_row_height(&UI_FONT_DEFAULT));
 	lv_obj_set_style_bg_color(row, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
 	lv_obj_set_style_pad_hor(row, ROW_PAD_X, LV_PART_MAIN);
@@ -126,7 +128,14 @@ static lv_obj_t *add_row(lv_obj_t *tab, const menu_item_t *item, lv_obj_t **out_
 	 * room; needs a fixed height too, or it wraps instead of truncating.
 	 */
 	lv_obj_set_flex_grow(lbl, 1);
-	lv_obj_set_height(lbl, ROW_H);
+	/* Fixed height (needed so LONG_DOT truncates instead of wrapping) must match the value
+	 * label's natural content height below, or the row's flex CENTER can't align them the
+	 * same way: a box already at the row's full height can't be re-centered within it, so
+	 * it renders text top-aligned while the value label's smaller auto-sized box does get
+	 * centered. Plain line height (not ui_font_row_height()'s padded row height) is what the
+	 * value label auto-sizes to, so use that here too.
+	 */
+	lv_obj_set_height(lbl, lv_font_get_line_height(&UI_FONT_DEFAULT));
 	lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
 
 	*out_val_label = NULL;
@@ -302,7 +311,7 @@ lv_obj_t *screen_settings_create(lv_obj_t *parent, const menu_item_t *radio_item
 	s_tabview = tv;
 
 	lv_obj_set_size(tv, lv_pct(100), lv_pct(100));
-	lv_tabview_set_tab_bar_size(tv, TAB_BAR_H);
+	lv_tabview_set_tab_bar_size(tv, ui_font_row_height(&UI_FONT_DEFAULT));
 	lv_obj_set_style_bg_color(tv, theme_colors()->bg, LV_PART_MAIN);
 	lv_obj_set_style_border_width(tv, 0, LV_PART_MAIN);
 

@@ -3,6 +3,7 @@
 
 #include "overlay_volume.h"
 #include "../theme.h"
+#include "../fonts/fonts.h"
 
 #include <lvgl.h>
 #include <zephyr/logging/log.h>
@@ -42,6 +43,7 @@ void overlay_volume_create(void)
 
 	s_label = lv_label_create(s_panel);
 	lv_obj_set_style_text_color(s_label, theme_colors()->text_primary, LV_PART_MAIN);
+	lv_obj_set_style_text_font(s_label, &UI_FONT_DEFAULT, LV_PART_MAIN);
 	lv_label_set_text(s_label, "VOL  0 %");
 	lv_obj_align(s_label, LV_ALIGN_TOP_LEFT, 0, 0);
 

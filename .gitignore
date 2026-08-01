@@ -15,3 +15,6 @@ __pycache__/
 
 # Build outputs
 build/
+
+# Downloaded source fonts (tools/gen_fonts.py); generated .c output is committed
+tools/.font_cache/

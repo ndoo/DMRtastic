@@ -8,6 +8,7 @@
 #include <lvgl.h>
 
 #include "view/theme.h"
+#include "view/fonts/fonts.h"
 #include "app.h"
 #include <drivers/input/kbd_matrix_shared_bus.h>
 
@@ -30,7 +31,7 @@ static void lvgl_thread(void *a, void *b, void *c)
 
 	lv_theme_t *th =
 		lv_theme_default_init(disp, theme_colors()->accent_primary,
-				      theme_colors()->accent_secondary, true, LV_FONT_DEFAULT);
+				      theme_colors()->accent_secondary, true, &UI_FONT_DEFAULT);
 	lv_display_set_theme(disp, th);
 
 	app_init();

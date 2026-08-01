@@ -4,6 +4,7 @@
 #include "screen_zones.h"
 #include "../status_bar.h"
 #include "../theme.h"
+#include "../fonts/fonts.h"
 #include "app.h"
 #include "controller/zone_controller.h"
 #include "model/codeplug.h"
@@ -48,7 +49,7 @@ lv_obj_t *screen_zones_create(lv_obj_t *parent)
 	/* Channel-membership count — large, centre */
 	d->count_label = lv_label_create(scr);
 	lv_obj_set_style_text_color(d->count_label, theme_colors()->text_primary, LV_PART_MAIN);
-	lv_obj_set_style_text_font(d->count_label, &lv_font_montserrat_20, LV_PART_MAIN);
+	lv_obj_set_style_text_font(d->count_label, &UI_FONT_LARGE, LV_PART_MAIN);
 	lv_label_set_text(d->count_label, "--");
 	lv_obj_align(d->count_label, LV_ALIGN_CENTER, 0, 0);
 
