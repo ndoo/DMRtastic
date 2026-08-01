@@ -35,8 +35,9 @@ static void cmd_status(char *args)
 				 fm_vfo_controller_get_squelch_open() ? "open" : "closed");
 }
 
-/** "channel [next|prev]" — steps (applying to radio_state) then prints channel_controller's
- * current channel, same fields screen_fm_channel.c will eventually paint (Milestone 3b).
+/** "channel [next|prev|zone on|off]" — steps or toggles zone-scoped mode (Milestone 4b, see
+ * channel_controller_set_zone_scoped()) then prints channel_controller's current channel, same
+ * fields screen_fm_channel.c paints.
  */
 static void cmd_channel(char *args)
 {
@@ -46,23 +47,34 @@ static void cmd_channel(char *args)
 		channel_controller_step(true);
 	} else if (sub && strcmp(sub, "prev") == 0) {
 		channel_controller_step(false);
+	} else if (sub && strcmp(sub, "zone") == 0) {
+		char *onoff = strtok(NULL, " \t");
+
+		if (!onoff || (strcmp(onoff, "on") != 0 && strcmp(onoff, "off") != 0)) {
+			console_transport_puts("ERR: channel zone on|off\r\n");
+			return;
+		}
+		channel_controller_set_zone_scoped(strcmp(onoff, "on") == 0);
 	} else if (sub) {
-		console_transport_puts("ERR: channel [next|prev]\r\n");
+		console_transport_puts("ERR: channel [next|prev|zone on|off]\r\n");
 		return;
 	}
 
 	struct cp_channel ch;
 
 	if (!channel_controller_get_current(&ch)) {
-		console_transport_puts("no in-use channel\r\n");
+		console_transport_printf("no in-use channel (zone_scoped=%s)\r\n",
+					 channel_controller_is_zone_scoped() ? "yes" : "no");
 		return;
 	}
 
 	char rx_css_buf[12], tx_css_buf[12];
 
 	console_transport_printf(
-		"ch=%d name=%.16s rx=%lu.%05lu MHz tx=%lu.%05lu MHz bw=%s pwr=%u\r\n",
+		"ch=%d name=%.16s zone_scoped=%s rx=%lu.%05lu MHz tx=%lu.%05lu MHz bw=%s "
+		"pwr=%u\r\n",
 		channel_controller_get_current_index(), ch.name,
+		channel_controller_is_zone_scoped() ? "yes" : "no",
 		(unsigned long)(ch.rxFreq / 1000000U), (unsigned long)(ch.rxFreq % 1000000U),
 		(unsigned long)(ch.txFreq / 1000000U), (unsigned long)(ch.txFreq % 1000000U),
 		(ch.chFlag4 & CP_CHANNEL_FLAG4_BW_25K) ? "25K" : "12.5K", ch.power);
@@ -72,9 +84,10 @@ static void cmd_channel(char *args)
 		console_format_css(codeplug_decode_css(ch.txTone), tx_css_buf, sizeof(tx_css_buf)));
 }
 
-/** "zone [next|prev]" — steps (no channel/radio interaction yet, Milestone 4b) then prints
- * zone_controller's current zone, same fields the future Zones screen (Milestone 4c) will
- * eventually paint.
+/** "zone [next|prev]" — steps (no radio interaction here; switching the operating channel to
+ * a zone member happens through "channel zone on", Milestone 4b) then prints zone_controller's
+ * current zone plus its channel-membership list, same fields the future Zones screen
+ * (Milestone 4c) will eventually paint.
  */
 static void cmd_zone(char *args)
 {
@@ -97,9 +110,18 @@ static void cmd_zone(char *args)
 		return;
 	}
 
-	console_transport_printf("slot=%d count=%d name=%.16s channels_per_zone=%d\r\n",
+	int channel_count = zone_controller_get_channel_count();
+
+	console_transport_printf("slot=%d count=%d name=%.16s channels_per_zone=%d ch_count=%d\r\n",
 				 zone_controller_get_current_slot(), zone_controller_get_count(),
-				 z.name, channels_per_zone);
+				 z.name, channels_per_zone, channel_count);
+
+	console_transport_puts("channels=");
+	for (int i = 0; i < channel_count; i++) {
+		console_transport_printf("%s%u", i == 0 ? "" : ",",
+					 zone_controller_get_channel_at(i));
+	}
+	console_transport_puts("\r\n");
 }
 
 /** Prints one menu_item_t table with a "group.Label = value" line per row. */
@@ -252,8 +274,9 @@ static void cmd_css(char *args)
 
 const struct console_cmd console_view_cmds[] = {
 	{"status", "current VFO/frequency/RSSI/squelch", cmd_status},
-	{"channel", "[next|prev] -- current/step FM channel", cmd_channel},
-	{"zone", "[next|prev] -- current/step zone", cmd_zone},
+	{"channel", "[next|prev|zone on|off] -- current/step FM channel, zone-scope toggle",
+	 cmd_channel},
+	{"zone", "[next|prev] -- current/step zone + its channel membership", cmd_zone},
 	{"settings", "list | set radio|display <label> up|down", cmd_settings},
 	{"css", "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css},
 };

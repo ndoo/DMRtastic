@@ -5,8 +5,10 @@
 
 /*
  * FM Channel controller -- owns the current-channel index into the codeplug's flat
- * 1024-slot channel table and applies its rx frequency/CSS/bandwidth to radio_state.
- * No zone scoping yet (Milestone 4); steps across every in-use channel in index order.
+ * 1024-slot channel table and applies its rx frequency/CSS/bandwidth to radio_state. Steps
+ * across every in-use channel in index order by default; as of Milestone 4b, an optional
+ * zone-scoped mode (channel_controller_set_zone_scoped()) restricts stepping to zone_
+ * controller's current zone's channel list instead -- see that function's doc comment.
  * Static module singleton, same convention as fm_vfo_controller.c.
  */
 
@@ -67,5 +69,31 @@ void channel_controller_entry_commit(void);
 
 /** Cancels an in-progress entry without committing it. A no-op if none is in progress. */
 void channel_controller_entry_cancel(void);
+
+/** Enables or disables zone-scoped stepping (Milestone 4b). When enabled,
+ * channel_controller_step() walks zone_controller's current zone's channel list (in list
+ * order, wrapping at its ends) instead of the flat 1..1024 table; a channel named there is
+ * still confirmed in-use via codeplug_channel_is_in_use() before landing on it, the same way
+ * flat-table stepping already does, since a zone can reference a channel slot that's since
+ * been cleared. Enabling immediately re-resolves the current channel to the nearest in-use
+ * entry in the zone's list (scanning forward), applying it to radio_state; if the zone has no
+ * in-use channel at all, channel_controller_get_current() starts returning false, same failure
+ * mode as an empty flat table. Disabling leaves the channel that was current unchanged and
+ * reverts stepping to the flat table from there.
+ *
+ * Direct-number entry (channel_controller_entry_*()) is unaffected by this flag either way --
+ * it always targets the flat table. This matches how OpenGD77 behaves in its "All Channels"
+ * virtual zone; a real (non-"All Channels") zone actually gives direct entry zone-relative-
+ * position semantics there instead (confirmed by reading uiChannelMode.c while implementing
+ * this), but this firmware has no "All Channels" virtual zone concept yet, so there's no
+ * second entry semantics to switch between -- deferred to Milestone 4c alongside that
+ * decision, see its Milestone Log entry.
+ */
+void channel_controller_set_zone_scoped(bool enabled);
+
+/** True if zone-scoped stepping (see channel_controller_set_zone_scoped()) is currently
+ * active.
+ */
+bool channel_controller_is_zone_scoped(void);
 
 #endif /* DMRTASTIC_CHANNEL_CONTROLLER_H_ */

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
 
 #include "channel_controller.h"
+#include "controller/zone_controller.h"
 #include "model/codeplug.h"
 #include "model/radio_state.h"
 
@@ -20,6 +21,14 @@ static int s_index_1based; /* 0 = no in-use channel found */
  * entry is in progress.
  */
 static int s_entry_value;
+
+/* Zone-scoped stepping (Milestone 4b) -- see channel_controller_set_zone_scoped()'s doc
+ * comment. s_zone_pos is the position within zone_controller's current zone's channel list
+ * that s_channel/s_index_1based currently reflect; -1 when that's untracked (not zone-scoped,
+ * or the current channel came from a flat-table direct entry while zone-scoped).
+ */
+static bool s_zone_scoped;
+static int s_zone_pos = -1;
 
 /** Reads slot index_1based and reports whether it's a populated (in-use) channel. */
 static bool load_channel(int index_1based, struct cp_channel *out)
@@ -83,6 +92,49 @@ static int find_next_in_use(int start, bool up, struct cp_channel *out)
 	return 0;
 }
 
+/** Loads the channel at position pos within zone_controller's current zone's channel list into
+ * out, reporting whether it's in-use -- mirrors load_channel() but resolves the codeplug index
+ * through zone_controller_get_channel_at() first.
+ */
+static bool load_zone_channel(int pos, struct cp_channel *out)
+{
+	uint16_t idx = zone_controller_get_channel_at(pos);
+
+	if (idx == 0) {
+		return false;
+	}
+	return load_channel(idx, out);
+}
+
+/** Scans zone_controller's current zone's channel-list positions from start (exclusive) in
+ * the given direction, wrapping at the 0..count-1 ends, for the next in-use channel -- same
+ * shape as find_next_in_use() but over the zone's list instead of the flat table. A start
+ * outside 0..count-1 (including -1, used for initial resolution) is normalized first: -1 for
+ * "up" (so the first candidate is position 0), count for "down" (so the first candidate is the
+ * last position) -- this also recovers cleanly from a stale s_zone_pos left by a flat-table
+ * direct entry (channel_controller_entry_commit() resets it to -1 regardless of direction).
+ * Returns the position landed on, or -1 if none is in-use (including an empty zone).
+ */
+static int find_next_in_use_zone_pos(int start, bool up, struct cp_channel *out)
+{
+	int count = zone_controller_get_channel_count();
+
+	if (count <= 0) {
+		return -1;
+	}
+
+	int pos = (start >= 0 && start < count) ? start : (up ? -1 : count);
+
+	for (int i = 0; i < count; i++) {
+		pos = up ? (pos == count - 1 ? 0 : pos + 1) : (pos == 0 ? count - 1 : pos - 1);
+
+		if (load_zone_channel(pos, out)) {
+			return pos;
+		}
+	}
+	return -1;
+}
+
 /* Deliberately doesn't call apply_to_radio() -- there's no mode arbitration yet between this
  * controller and fm_vfo_controller (that's Milestone 3c), and fm_vfo_controller_init() already
  * owns the radio for the FM VFO screen that's actually shown at boot. Caching here just makes
@@ -110,6 +162,22 @@ void channel_controller_step(bool up)
 	}
 
 	struct cp_channel candidate;
+
+	if (s_zone_scoped) {
+		int pos = find_next_in_use_zone_pos(s_zone_pos, up, &candidate);
+
+		if (pos < 0) {
+			LOG_WRN("channel_controller_step: no other in-use channel found in zone");
+			return;
+		}
+
+		s_zone_pos = pos;
+		s_index_1based = zone_controller_get_channel_at(pos);
+		s_channel = candidate;
+		apply_to_radio(&s_channel);
+		return;
+	}
+
 	int idx = find_next_in_use(s_index_1based, up, &candidate);
 
 	if (idx == 0) {
@@ -175,6 +243,12 @@ void channel_controller_entry_commit(void)
 	if (load_channel(s_entry_value, &candidate)) {
 		s_index_1based = s_entry_value;
 		s_channel = candidate;
+		/* Direct entry always targets the flat table regardless of s_zone_scoped -- see
+		 * channel_controller_set_zone_scoped()'s doc comment -- so the committed channel
+		 * may not be a member of the current zone's list; drop position tracking rather
+		 * than leave it pointing at an unrelated entry.
+		 */
+		s_zone_pos = -1;
 		apply_to_radio(&s_channel);
 	} else {
 		LOG_WRN("channel_controller_entry_commit: channel %d not in use", s_entry_value);
@@ -185,4 +259,35 @@ void channel_controller_entry_commit(void)
 void channel_controller_entry_cancel(void)
 {
 	s_entry_value = 0;
+}
+
+void channel_controller_set_zone_scoped(bool enabled)
+{
+	s_zone_scoped = enabled;
+
+	if (!enabled) {
+		s_zone_pos = -1;
+		return;
+	}
+
+	struct cp_channel candidate;
+	int pos = find_next_in_use_zone_pos(-1, true, &candidate);
+
+	if (pos < 0) {
+		LOG_WRN("channel_controller_set_zone_scoped: no in-use channel found in current "
+			"zone");
+		s_index_1based = 0;
+		s_zone_pos = -1;
+		return;
+	}
+
+	s_zone_pos = pos;
+	s_index_1based = zone_controller_get_channel_at(pos);
+	s_channel = candidate;
+	apply_to_radio(&s_channel);
+}
+
+bool channel_controller_is_zone_scoped(void)
+{
+	return s_zone_scoped;
 }

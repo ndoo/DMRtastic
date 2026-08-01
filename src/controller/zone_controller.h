@@ -5,17 +5,19 @@
 
 /*
  * Zone controller -- owns navigation over the codeplug's zone table (up to 68 physical
- * slots, in-use bitmap cached at init per codeplug_get_zone_inuse_bitmap()). No channel-
- * membership integration yet (Milestone 4b) and no "All Channels" virtual zone (also 4b/4c
- * territory -- it's a channel_controller integration concept, not a zone-table one); this
- * sub-milestone is navigation over populated zone slots only. Static module singleton, same
- * convention as channel_controller.c.
+ * slots, in-use bitmap cached at init per codeplug_get_zone_inuse_bitmap()), plus (as of
+ * Milestone 4b) the current zone's channel-membership list, consumed by channel_controller's
+ * zone-scoped stepping mode (channel_controller_set_zone_scoped()). No "All Channels" virtual
+ * zone -- deferred to Milestone 4c alongside the Zones screen and its reachability decision,
+ * see that milestone's Milestone Log entry. Static module singleton, same convention as
+ * channel_controller.c.
  */
 
 #ifndef DMRTASTIC_ZONE_CONTROLLER_H_
 #define DMRTASTIC_ZONE_CONTROLLER_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "model/codeplug.h"
 
@@ -45,5 +47,21 @@ int zone_controller_get_current_slot(void);
 
 /** Number of in-use zone slots found at init, cached from the bitmap read there. */
 int zone_controller_get_count(void);
+
+/** Number of populated entries in the current zone's channels[] list, out of up to
+ * channels_per_zone (per zone_controller_get_current()). Stops at the first zero-value entry
+ * -- 0 is never a valid codeplug channel-table index (codeplug_get_channel() is 1-based) -- or
+ * at channels_per_zone if none is zero. Matches OpenGD77's own zone-channel-count convention
+ * (codeplugZoneGetDataForNumber()'s NOT_IN_CODEPLUGDATA_numChannelsInZone in the reference
+ * source), confirmed by reading it while implementing this. 0 if no current zone.
+ */
+int zone_controller_get_channel_count(void);
+
+/** 1-based codeplug channel-table index at position pos (0-based) within the current zone's
+ * channel list, where 0 <= pos < zone_controller_get_channel_count(). Returns 0 -- never a
+ * valid channel-table index -- if pos is out of that range or there's no current zone, so it
+ * doubles as a safe "not found" sentinel.
+ */
+uint16_t zone_controller_get_channel_at(int pos);
 
 #endif /* DMRTASTIC_ZONE_CONTROLLER_H_ */

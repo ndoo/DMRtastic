@@ -19,11 +19,25 @@ static uint8_t s_bitmap[32];
 static int s_count;
 static struct cp_zone s_zone;
 static int s_channels_per_zone;
-static int s_current_slot; /* -1 = no in-use zone found */
+static int s_channel_count; /* populated entries in s_zone.channels[], see count_channels() */
+static int s_current_slot;  /* -1 = no in-use zone found */
 
 static bool slot_is_in_use(int slot)
 {
 	return ((s_bitmap[slot / 8] >> (slot % 8)) & 0x01) != 0;
+}
+
+/** Counts populated entries in zone->channels[0..channels_per_zone) -- see
+ * zone_controller_get_channel_count()'s doc comment for the stopping rule.
+ */
+static int count_channels(const struct cp_zone *zone, int channels_per_zone)
+{
+	for (int i = 0; i < channels_per_zone; i++) {
+		if (zone->channels[i] == 0) {
+			return i;
+		}
+	}
+	return channels_per_zone;
 }
 
 /** Reads slot into out/channels_per_zone_out; returns false on a read error. Doesn't check
@@ -81,7 +95,9 @@ void zone_controller_init(void)
 	if (!load_zone(s_current_slot, &s_zone, &s_channels_per_zone)) {
 		LOG_WRN("zone_controller_init: read of slot %d failed", s_current_slot);
 		s_current_slot = -1;
+		return;
 	}
+	s_channel_count = count_channels(&s_zone, s_channels_per_zone);
 }
 
 void zone_controller_step(bool up)
@@ -108,6 +124,7 @@ void zone_controller_step(bool up)
 	s_current_slot = idx;
 	s_zone = candidate;
 	s_channels_per_zone = channels_per_zone;
+	s_channel_count = count_channels(&s_zone, s_channels_per_zone);
 }
 
 bool zone_controller_get_current(struct cp_zone *out, int *channels_per_zone_out)
@@ -128,4 +145,17 @@ int zone_controller_get_current_slot(void)
 int zone_controller_get_count(void)
 {
 	return s_count;
+}
+
+int zone_controller_get_channel_count(void)
+{
+	return s_current_slot == -1 ? 0 : s_channel_count;
+}
+
+uint16_t zone_controller_get_channel_at(int pos)
+{
+	if (s_current_slot == -1 || pos < 0 || pos >= s_channel_count) {
+		return 0;
+	}
+	return s_zone.channels[pos];
 }
