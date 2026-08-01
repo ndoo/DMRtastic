@@ -6,6 +6,7 @@
 #include "../theme.h"
 #include "app.h"
 #include "controller/fm_vfo_controller.h"
+#include "controller/scan_controller.h"
 #include "model/radio_settings.h"
 
 #include <zephyr/kernel.h>
@@ -116,6 +117,14 @@ void screen_fm_vfo_destroy(lv_obj_t *screen)
 void screen_fm_vfo_update(lv_obj_t *screen)
 {
 	fm_vfo_data_t *d = lv_obj_get_user_data(screen);
+
+	/* scan_controller only progresses while this screen's update() is running, same
+	 * reasoning as screen_fm_channel_update()'s own scan_controller_tick() call -- a
+	 * no-op unless VFO scan (Milestone 5b) is the currently active mode. May step
+	 * fm_vfo_controller to a new frequency, which the frequency check below picks up
+	 * same as a manual step.
+	 */
+	scan_controller_tick_vfo();
 
 	fm_vfo_controller_tick();
 

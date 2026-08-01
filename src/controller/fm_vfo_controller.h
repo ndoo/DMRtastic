@@ -56,6 +56,22 @@ int fm_vfo_controller_get_current_vfo(void);
  */
 void fm_vfo_controller_set_current_vfo(int vfo_ab);
 
+/** Sets the active VFO's RX frequency directly and arms a debounced retune, same tail
+ * behavior as fm_vfo_controller_step()/_entry_digit()'s commit path. Unlike those two, this
+ * performs no band validation of its own -- for scan_controller's VFO frequency scan
+ * (Milestone 5b), which derives its own in-band sweep bounds and needs to land exactly on a
+ * wrapped edge rather than have this clamp or reject it.
+ */
+void fm_vfo_controller_set_frequency_hz(uint32_t hz);
+
+/** Reports the hard VHF/UHF tuning ceiling both VFOs are bound by (see fm_vfo_controller_init()'s
+ * codeplug_get_device_info() read, or its hardcoded fallback if that read failed). Exposed for
+ * scan_controller's own default-scan-bounds computation (Milestone 5b) -- not itself a
+ * stepping API.
+ */
+void fm_vfo_controller_get_band_limits(uint32_t *vhf_min_hz, uint32_t *vhf_max_hz,
+				       uint32_t *uhf_min_hz, uint32_t *uhf_max_hz);
+
 /** True while a direct-frequency digit entry is in progress -- the view should render
  * the partial entry buffer below instead of fm_vfo_controller_get_frequency_hz() while
  * this is true.

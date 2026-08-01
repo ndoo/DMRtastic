@@ -210,6 +210,22 @@ void fm_vfo_controller_set_current_vfo(int vfo_ab)
 	s_last_step_uptime = k_uptime_get();
 }
 
+void fm_vfo_controller_set_frequency_hz(uint32_t hz)
+{
+	s_vfo[s_current_vfo].rxFreq = hz;
+	s_retune_pending = true;
+	s_last_step_uptime = k_uptime_get();
+}
+
+void fm_vfo_controller_get_band_limits(uint32_t *vhf_min_hz, uint32_t *vhf_max_hz,
+				       uint32_t *uhf_min_hz, uint32_t *uhf_max_hz)
+{
+	*vhf_min_hz = s_vhf_min_hz;
+	*vhf_max_hz = s_vhf_max_hz;
+	*uhf_min_hz = s_uhf_min_hz;
+	*uhf_max_hz = s_uhf_max_hz;
+}
+
 static bool freq_in_band(uint32_t hz)
 {
 	return (hz >= s_vhf_min_hz && hz <= s_vhf_max_hz) ||

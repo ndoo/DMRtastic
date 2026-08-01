@@ -29,7 +29,7 @@ static void cmd_status(char *args)
 
 	uint32_t freq_hz = fm_vfo_controller_get_frequency_hz();
 
-	console_transport_printf("vfo=%c freq=%lu.%05lu MHz rssi=%u squelch=%s\r\n",
+	console_transport_printf("vfo=%c freq=%lu.%06lu MHz rssi=%u squelch=%s\r\n",
 				 fm_vfo_controller_get_current_vfo() == 0 ? 'A' : 'B',
 				 (unsigned long)(freq_hz / 1000000U),
 				 (unsigned long)(freq_hz % 1000000U), fm_vfo_controller_get_rssi(),
@@ -72,7 +72,7 @@ static void cmd_channel(char *args)
 	char rx_css_buf[12], tx_css_buf[12];
 
 	console_transport_printf(
-		"ch=%d name=%.16s zone_scoped=%s rx=%lu.%05lu MHz tx=%lu.%05lu MHz bw=%s "
+		"ch=%d name=%.16s zone_scoped=%s rx=%lu.%06lu MHz tx=%lu.%06lu MHz bw=%s "
 		"pwr=%u\r\n",
 		channel_controller_get_current_index(), ch.name,
 		channel_controller_is_zone_scoped() ? "yes" : "no",
@@ -273,32 +273,47 @@ static void cmd_css(char *args)
 	console_transport_printf("%s: OK\r\n", console_format_css(css, buf, sizeof(buf)));
 }
 
-/** "scan on [up|down]" / "scan off" / "scan tick" / "scan" (bare status) -- FM channel scan
- * (Milestone 5a). "tick" manually drives one scan_controller_tick() poll for scripted testing
- * when the FM Channel screen isn't the visible frame -- see scan_controller.h's top comment for
- * why scanning otherwise only progresses while that screen is topmost.
+/** "scan on [up|down]" / "scan vfo on [up|down]" / "scan off" / "scan tick" / "scan" (bare
+ * status) -- FM channel scan (Milestone 5a) and VFO frequency scan (Milestone 5b), which share
+ * scan_controller's single state machine (only one mode can be active at a time -- see
+ * scan_controller.h's top comment). "tick" manually drives one poll of whichever mode is
+ * active for scripted testing when its matching screen (FM Channel / FM VFO) isn't the visible
+ * frame -- calling both scan_controller_tick() and _tick_vfo() unconditionally is safe since
+ * each is a no-op unless its own target is the one currently armed.
  */
 static void cmd_scan(char *args)
 {
 	char *sub = strtok(args, " \t");
+	bool vfo_mode = sub && strcmp(sub, "vfo") == 0;
+
+	if (vfo_mode) {
+		sub = strtok(NULL, " \t");
+	}
 
 	if (sub && strcmp(sub, "on") == 0) {
 		char *dir = strtok(NULL, " \t");
+		bool up;
 
 		if (dir && strcmp(dir, "down") == 0) {
-			scan_controller_start(false);
+			up = false;
 		} else if (!dir || strcmp(dir, "up") == 0) {
-			scan_controller_start(true);
+			up = true;
 		} else {
-			console_transport_puts("ERR: scan on [up|down]\r\n");
+			console_transport_puts("ERR: scan [vfo] on [up|down]\r\n");
 			return;
+		}
+		if (vfo_mode) {
+			scan_controller_start_vfo(up);
+		} else {
+			scan_controller_start(up);
 		}
 	} else if (sub && strcmp(sub, "off") == 0) {
 		scan_controller_stop();
 	} else if (sub && strcmp(sub, "tick") == 0) {
 		scan_controller_tick();
+		scan_controller_tick_vfo();
 	} else if (sub) {
-		console_transport_puts("ERR: scan [on [up|down]|off|tick]\r\n");
+		console_transport_puts("ERR: scan [vfo] [on [up|down]|off|tick]\r\n");
 		return;
 	}
 
@@ -316,13 +331,20 @@ static void cmd_scan(char *args)
 		break;
 	}
 
+	uint32_t freq_hz = fm_vfo_controller_get_frequency_hz();
+
+	console_transport_printf("scan=%s vfo=%c freq=%lu.%06lu MHz | ", state_str,
+				 fm_vfo_controller_get_current_vfo() == 0 ? 'A' : 'B',
+				 (unsigned long)(freq_hz / 1000000U),
+				 (unsigned long)(freq_hz % 1000000U));
+
 	struct cp_channel ch;
 
 	if (!channel_controller_get_current(&ch)) {
-		console_transport_printf("scan=%s (no in-use channel)\r\n", state_str);
+		console_transport_puts("(no in-use channel)\r\n");
 		return;
 	}
-	console_transport_printf("scan=%s ch=%d name=%.16s rx=%lu.%05lu MHz\r\n", state_str,
+	console_transport_printf("ch=%d name=%.16s rx=%lu.%06lu MHz\r\n",
 				 channel_controller_get_current_index(), ch.name,
 				 (unsigned long)(ch.rxFreq / 1000000U),
 				 (unsigned long)(ch.rxFreq % 1000000U));
@@ -333,7 +355,7 @@ const struct console_cmd console_view_cmds[] = {
 	{"channel", "[next|prev|zone on|off] -- current/step FM channel, zone-scope toggle",
 	 cmd_channel},
 	{"zone", "[next|prev] -- current/step zone + its channel membership", cmd_zone},
-	{"scan", "[on [up|down]|off|tick] -- FM channel scan status/control", cmd_scan},
+	{"scan", "[vfo] [on [up|down]|off|tick] -- FM channel/VFO scan status/control", cmd_scan},
 	{"settings", "list | set radio|display <label> up|down", cmd_settings},
 	{"css", "tx|rx off|ctcss <tenths_hz>|dcs <code> n|i", cmd_css},
 };
