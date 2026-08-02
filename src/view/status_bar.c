@@ -5,6 +5,7 @@
 #include "theme.h"
 #include "fonts/fonts.h"
 #include "app.h"
+#include "controller/scan_controller.h"
 #include "model/battery.h"
 #include "model/radio_settings.h"
 #include "model/radio_state.h"
@@ -22,7 +23,6 @@ LOG_MODULE_DECLARE(app_ui, LOG_LEVEL_DBG);
 
 static lv_obj_t *s_mode_label;
 static lv_obj_t *s_scan_label;
-static lv_obj_t *s_tx_label;
 static lv_obj_t *s_rssi_bars[RSSI_BARS];
 static lv_obj_t *s_gps_dot;
 static lv_obj_t *s_bat_label;
@@ -34,7 +34,7 @@ int32_t status_bar_height(void)
 	return ui_font_row_height(&UI_FONT_DEFAULT);
 }
 
-/** Builds the status bar's mode/scan/TX labels, RSSI bars, GPS dot, and battery label. */
+/** Builds the status bar's mode/scan labels, RSSI bars, GPS dot, and battery label. */
 void status_bar_create(lv_obj_t *parent)
 {
 	/* Mode label — left zone */
@@ -43,22 +43,16 @@ void status_bar_create(lv_obj_t *parent)
 	lv_obj_set_style_text_color(s_mode_label, theme_colors()->text_primary, LV_PART_MAIN);
 	lv_obj_align(s_mode_label, LV_ALIGN_LEFT_MID, 2, 0);
 
-	/* Scan indicator — centre, hidden by default */
+	/* Scan indicator — positioned relative to the mode label's actual rendered width (see
+	 * status_bar_set_mode()), not a fixed offset, since mode text ranges from "FM" to
+	 * "CH 123" -- hidden by default. Placed here rather than centre so it doesn't overlap
+	 * the RSSI bars.
+	 */
 	s_scan_label = lv_label_create(parent);
 	lv_label_set_text(s_scan_label, "SCAN");
 	lv_obj_set_style_text_color(s_scan_label, theme_colors()->status_warning, LV_PART_MAIN);
-	lv_obj_align(s_scan_label, LV_ALIGN_CENTER, 0, 0);
+	lv_obj_align_to(s_scan_label, s_mode_label, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 	lv_obj_add_flag(s_scan_label, LV_OBJ_FLAG_HIDDEN);
-
-	/* TX indicator — positioned relative to the mode label's actual rendered width (see
-	 * status_bar_set_mode()), not a fixed offset, since mode text ranges from "FM" to
-	 * "CH 123" -- hidden by default.
-	 */
-	s_tx_label = lv_label_create(parent);
-	lv_label_set_text(s_tx_label, "TX");
-	lv_obj_set_style_text_color(s_tx_label, theme_colors()->status_error, LV_PART_MAIN);
-	lv_obj_align_to(s_tx_label, s_mode_label, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
-	lv_obj_add_flag(s_tx_label, LV_OBJ_FLAG_HIDDEN);
 
 	/* RSSI bars — right zone, bottom-aligned, ascending heights */
 	static const uint8_t bar_heights[RSSI_BARS] = {3, 5, 7, 9};
@@ -139,16 +133,28 @@ void status_bar_set_mode(const char *mode)
 {
 	lv_label_set_text(s_mode_label, mode);
 	/* Re-tracks the mode label's width, which changes with its text (e.g. "FM" vs.
-	 * "CH 123"), so the TX indicator doesn't overlap it.
+	 * "CH 123"), so the scan indicator doesn't overlap it.
 	 */
-	lv_obj_align_to(s_tx_label, s_mode_label, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
+	lv_obj_align_to(s_scan_label, s_mode_label, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 }
 
-void status_bar_set_tx(bool active)
+void status_bar_set_scan(enum scan_state state)
 {
-	if (active) {
-		lv_obj_clear_flag(s_tx_label, LV_OBJ_FLAG_HIDDEN);
-	} else {
-		lv_obj_add_flag(s_tx_label, LV_OBJ_FLAG_HIDDEN);
+	static enum scan_state s_last_state = SCAN_STATE_IDLE;
+
+	if (state == s_last_state) {
+		return;
 	}
+	s_last_state = state;
+
+	if (state == SCAN_STATE_IDLE) {
+		lv_obj_add_flag(s_scan_label, LV_OBJ_FLAG_HIDDEN);
+		return;
+	}
+
+	lv_obj_clear_flag(s_scan_label, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_set_style_text_color(s_scan_label,
+				    state == SCAN_STATE_PAUSED ? theme_colors()->status_success
+							       : theme_colors()->status_warning,
+				    LV_PART_MAIN);
 }

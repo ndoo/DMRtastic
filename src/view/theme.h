@@ -25,7 +25,7 @@ typedef struct {
 	lv_color_t accent_secondary; /* secondary interactive accent (theme default) */
 	lv_color_t status_success;   /* squelch-open indicator */
 	lv_color_t status_warning;   /* scan indicator */
-	lv_color_t status_error;     /* TX indicator */
+	lv_color_t status_error;     /* reserved for future error/alert indicators */
 } theme_colors_t;
 
 /** Populates the compiled-in default palette; call once before app_init(). */

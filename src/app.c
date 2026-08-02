@@ -301,6 +301,7 @@ static void update_timer_cb(lv_timer_t *t)
 	ARG_UNUSED(t);
 	battery_poll();
 	status_bar_update();
+	status_bar_set_scan(scan_controller_get_state());
 	if (s_frame_top >= 0) {
 		screen_id_t id = s_frame_stack[s_frame_top];
 
@@ -491,12 +492,6 @@ static void dispatch_action(ui_action_t action)
 				frame_ops[id].handle_action(s_frame_obj[id], action);
 			}
 		}
-		break;
-	case UI_ACTION_PTT:
-		status_bar_set_tx(true);
-		break;
-	case UI_ACTION_PTT_RELEASE:
-		status_bar_set_tx(false);
 		break;
 	case UI_ACTION_SK1:
 		overlay_quickmenu_show();

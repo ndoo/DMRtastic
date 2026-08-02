@@ -4,7 +4,7 @@
  */
 
 /*
- * Persistent status bar: mode label, RSSI bars, GPS dot (placeholder), battery label.
+ * Persistent status bar: mode/scan labels, RSSI bars, GPS dot (placeholder), battery label.
  * Internal header — include only from src/ui/.
  */
 
@@ -13,6 +13,8 @@
 
 #include <stdbool.h>
 #include <lvgl.h>
+
+#include "controller/scan_controller.h"
 
 /** Height for the fixed status bar strip: one line of UI_FONT_DEFAULT plus margin (see
  * fonts.h ui_font_row_height()).
@@ -26,7 +28,10 @@ void status_bar_create(lv_obj_t *parent);
 void status_bar_update(void);
 void status_bar_set_mode(const char *mode);
 
-/** Show/hide the TX indicator. UI feedback only — no RF is enabled by this. */
-void status_bar_set_tx(bool active);
+/** Show/hide the SCAN indicator and reflect scan_controller's state: hidden while idle,
+ * status_warning while actively stepping, status_success (same color screen_fm_vfo.c's own
+ * squelch-open indicator uses) while paused on an open squelch.
+ */
+void status_bar_set_scan(enum scan_state state);
 
 #endif /* DMRTASTIC_UI_STATUS_BAR_H_ */
