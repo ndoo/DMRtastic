@@ -43,8 +43,11 @@ Early bring-up on real hardware.
 </table>
 
 [^1]: [Zephyr #108055](https://github.com/zephyrproject-rtos/zephyr/pull/108055) — pending next release.
+
 [^2]: [Zephyr #108010](https://github.com/zephyrproject-rtos/zephyr/pull/108010) — pending next release.
+
 [^3]: Toggled directly; no PWM/tone-capable DT config yet.
+
 [^4]: Power-enable pin only; capture path (I2S3) not wired to this use.
 
 Legend: ⭐ implemented with upstream driver &nbsp; 🟢 implemented with out-of-tree driver &nbsp; 🟡 scaffolded &nbsp; 🔴 planned &nbsp; ⚪ future
@@ -95,30 +98,31 @@ Interactive console over USB CDC-ACM (`src/console/`). Debug commands
 (`console_view.c`) go through the same Controller/Model layer the LVGL UI
 uses:
 
-| Command | Layer | Purpose |
-|---|---|---|
-| `at r/w` | debug | Raw AT1846S register read/write |
-| `hc r/w` | debug | Raw HR-C6000 register read/write |
-| `rssi` | debug | Raw AT1846S 0x1B noise/signal read |
-| `cp list` | debug | List known codeplug flash regions |
-| `cp dump <addr> <len>` | debug | Raw codeplug flash hexdump |
-| `cp region <name> [idx]` | debug | Typed decode of one codeplug region |
-| `cp settings` | debug | On-flash nv-settings block + magic number |
-| `cp info` | debug | JEDEC ID, device info, calibration sanity check |
-| `rtc r/w` | debug | Read/set the hardware RTC date-time |
-| `reboot` | debug | Warm-reset the MCU |
-| `status` | view | Current VFO/frequency/RSSI/squelch |
-| `settings list` / `settings set <radio\|display> <label> up\|down` | view | Read/adjust any Settings-screen row |
-| `css tx\|rx off\|ctcss\|dcs` | view | Set the shared CTCSS/DCS setting |
+| Command                                                            | Layer | Purpose                                         |
+| ------------------------------------------------------------------ | ----- | ----------------------------------------------- |
+| `at r/w`                                                           | debug | Raw AT1846S register read/write                 |
+| `hc r/w`                                                           | debug | Raw HR-C6000 register read/write                |
+| `rssi`                                                             | debug | Raw AT1846S 0x1B noise/signal read              |
+| `cp list`                                                          | debug | List known codeplug flash regions               |
+| `cp dump <addr> <len>`                                             | debug | Raw codeplug flash hexdump                      |
+| `cp region <name> [idx]`                                           | debug | Typed decode of one codeplug region             |
+| `cp settings`                                                      | debug | On-flash nv-settings block + magic number       |
+| `cp info`                                                          | debug | JEDEC ID, device info, calibration sanity check |
+| `rtc r/w`                                                          | debug | Read/set the hardware RTC date-time             |
+| `reboot`                                                           | debug | Warm-reset the MCU                              |
+| `status`                                                           | view  | Current VFO/frequency/RSSI/squelch              |
+| `settings list` / `settings set <radio\|display> <label> up\|down` | view  | Read/adjust any Settings-screen row             |
+| `css tx\|rx off\|ctcss\|dcs`                                       | view  | Set the shared CTCSS/DCS setting                |
 
 `tools/radio_diag.py` drives the `at`/`hc`/`rssi` commands from the host for automated register sweeps and gain/filter characterization.
 
 ## Upstream Contributions
 
-| Contribution | PR | Status | In-repo implementation |
-|---|---|---|---|
-| HX8353E display driver | [zephyrproject-rtos/zephyr#108055](https://github.com/zephyrproject-rtos/zephyr/pull/108055) | Merged to `main` 2026-06-12, not yet in a tagged release | Vendored copy in `drivers/hx8353e/`, synced to the merged content — will be removed once the pinned Zephyr version includes it |
-| `gpio_qdec`: add `invert-direction` property | [zephyrproject-rtos/zephyr#108010](https://github.com/zephyrproject-rtos/zephyr/pull/108010) | Merged to `main` 2026-05-04, not yet in a tagged release | `invert-direction` DT property not yet adopted — will be enabled once the pinned Zephyr version includes it |
+| Contribution                                       | PR                                                                                           | Status                                                   | In-repo implementation                                                                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| HX8353E display driver                             | [zephyrproject-rtos/zephyr#108055](https://github.com/zephyrproject-rtos/zephyr/pull/108055) | Merged to `main` 2026-06-12, not yet in a tagged release | Vendored copy in `drivers/hx8353e/`, synced to the merged content — will be removed once the pinned Zephyr version includes it                         |
+| `mipi_dbi_bitbang`: generalize LUT to N GPIO ports | [zephyrproject-rtos/zephyr#115161](https://github.com/zephyrproject-rtos/zephyr/pull/115161) | Open for review, opened 2026-08-02                       | `tools/patches/003-mipi-dbi-bitbang-multiport-lut.patch`, applied to the pinned framework — will be dropped once the pinned Zephyr version includes it |
+| `gpio_qdec`: add `invert-direction` property       | [zephyrproject-rtos/zephyr#108010](https://github.com/zephyrproject-rtos/zephyr/pull/108010) | Merged to `main` 2026-05-04, not yet in a tagged release | `invert-direction` DT property not yet adopted — will be enabled once the pinned Zephyr version includes it                                            |
 
 ## Design Notes
 
@@ -167,6 +171,7 @@ same thread as the LVGL display driver (see
 `include/drivers/input/kbd_matrix_shared_bus.h`).
 
 Within the scan itself, two STM32-specific quirks apply:
+
 - **Mode-transition glitch**: switching a pin directly from whatever output
   state it's in to input mode can produce a brief spurious HIGH glitch. The
   driver forces all row pins to output-low uniformly first, lets them
@@ -203,13 +208,13 @@ ticks, so hysteresis is handled at the application layer instead: a new
 value is reported only once it moves at least a gate's width — 1% of the
 calibrated span, so it tracks `in-min`/`in-max` if retuned — from the last
 one applied. `analog-axis`'s own `in-deadzone` doesn't help here; it's a
-*center* deadzone for joystick-style inputs, not a slider's full range.
+_center_ deadzone for joystick-style inputs, not a slider's full range.
 
 The noise this fixes (CDC log capture showed oscillation between adjacent
 steps with the pot held still) occurs near the physical maximum, where the
 audio-taper reverse-mapping LUT is steepest. Near either extreme, a step
-moving *toward* it bypasses the gate so the ends of the range stay
-reachable; a step *away* from an extreme still needs the full gate, so it
+moving _toward_ it bypasses the gate so the ends of the range stay
+reachable; a step _away_ from an extreme still needs the full gate, so it
 doesn't drift back on noise alone.
 
 ### Display init failure (`src/display.c`)
@@ -245,7 +250,7 @@ Hardware volume has no taper correction — the pot's own physical taper
 already applies one; the raw reading is linearly rescaled to the 0-100%
 the driver API expects. Display percentage, however, is reverse-mapped
 through an 11-point piecewise-linear LUT (checkpoints at 0/10, 1/10, ...,
-10/10 of the pot's native span) so the *displayed* value reads as
+10/10 of the pot's native span) so the _displayed_ value reads as
 perceptually linear. Which LUT applies is chosen at compile time by the
 AT1846S node's `volume-taper` DT property.
 
@@ -255,7 +260,7 @@ segments meeting at that point, rather than a smooth analytic curve —
 matching how these pots are manufactured (two overlapping resistive
 tracks).
 
-`volume_display_pct()` scales the raw-minus-min offset by 10 *before*
+`volume_display_pct()` scales the raw-minus-min offset by 10 _before_
 dividing by the span, so the checkpoint index and the in-segment fraction
 both come out of one exact calculation without requiring the span itself
 to be a multiple of 10 (it isn't: `vol_axis_ch`'s calibrated span is 1936
