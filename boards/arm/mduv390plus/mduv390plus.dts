@@ -50,6 +50,13 @@
 		};
 	};
 
+	gps_en_node: gps_en_node {
+		compatible = "gpio-leds";
+		gps_en: gps_en {
+			gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
 	leds {
 		compatible = "gpio-leds";
 		led_green: led_green {
@@ -256,6 +263,7 @@
 	aliases {
 		led0       = &led_green;
 		led1       = &led_red;
+		gps-en     = &gps_en;
 		watchdog0  = &iwdg;
 	};
 };
@@ -528,8 +536,12 @@ zephyr_udc0: &usbotg_fs {
 	status = "okay";
 };
 
+/* RX only -- PA9 (the USART1 TX pin) is repurposed as the GPS module's active-high
+ * power-enable line (see the gps_en node below); the module is never sent commands, only
+ * listened to.
+ */
 &usart1 {
-	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-0 = <&usart1_rx_pa10>;
 	pinctrl-names = "default";
 	current-speed = <9600>;
 	status = "okay";

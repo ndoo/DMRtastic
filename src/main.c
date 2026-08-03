@@ -11,6 +11,7 @@
 #include <drivers/radio/radio_transceiver.h>
 
 #include "model/battery.h"
+#include "model/gps.h"
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -126,6 +127,11 @@ int main(void)
 	ret = battery_init();
 	if (ret < 0) {
 		LOG_ERR("battery init failed (%d)", ret);
+	}
+
+	ret = gps_init();
+	if (ret < 0) {
+		LOG_ERR("GPS init failed (%d)", ret);
 	}
 
 	return 0;

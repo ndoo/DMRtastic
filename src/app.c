@@ -24,6 +24,7 @@
 #include "controller/scan_controller.h"
 
 #include "model/battery.h"
+#include "model/gps.h"
 #include "model/radio_settings.h"
 #include "model/radio_state.h"
 
@@ -300,6 +301,7 @@ static void update_timer_cb(lv_timer_t *t)
 {
 	ARG_UNUSED(t);
 	battery_poll();
+	gps_poll();
 	status_bar_update();
 	status_bar_set_scan(scan_controller_get_state());
 	if (s_frame_top >= 0) {

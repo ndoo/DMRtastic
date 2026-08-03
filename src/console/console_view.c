@@ -16,6 +16,7 @@
 #include "controller/scan_controller.h"
 #include "controller/zone_controller.h"
 #include "controller/settings_controller.h"
+#include "model/gps.h"
 #include "model/radio_settings.h"
 
 #include <string.h>
@@ -355,8 +356,49 @@ static void cmd_scan(char *args)
 				 (unsigned long)(ch.rxFreq % 1000000U));
 }
 
+/** "gps" -- fix state/position/speed/UTC time from model/gps.c's NMEA parser. */
+static void cmd_gps(char *args)
+{
+	ARG_UNUSED(args);
+
+	const char *state_str;
+
+	switch (gps_get_fix_state()) {
+	case GPS_FIX_ACQUIRED:
+		state_str = "fix";
+		break;
+	case GPS_FIX_SEARCHING:
+		state_str = "searching";
+		break;
+	default:
+		state_str = "none";
+		break;
+	}
+	console_transport_printf("gps=%s", state_str);
+
+	int32_t lat, lon;
+
+	if (gps_get_position(&lat, &lon)) {
+		char lat_buf[16], lon_buf[16];
+
+		console_transport_printf(" lat=%s lon=%s speed=%u.%01u kn",
+					 console_format_latlon(lat, lat_buf, sizeof(lat_buf)),
+					 console_format_latlon(lon, lon_buf, sizeof(lon_buf)),
+					 gps_get_speed_knots_tenths() / 10,
+					 gps_get_speed_knots_tenths() % 10);
+	}
+
+	uint8_t h, m, s;
+
+	if (gps_get_utc_time(&h, &m, &s)) {
+		console_transport_printf(" utc=%02u:%02u:%02u", h, m, s);
+	}
+	console_transport_puts("\r\n");
+}
+
 const struct console_cmd console_view_cmds[] = {
 	{"status", "current VFO/frequency/RSSI/squelch", cmd_status},
+	{"gps", "fix state/position/speed/UTC time from the NMEA parser", cmd_gps},
 	{"channel", "[next|prev|zone on|off] -- current/step FM channel, zone-scope toggle",
 	 cmd_channel},
 	{"zone", "[next|prev] -- current/step zone + its channel membership", cmd_zone},
