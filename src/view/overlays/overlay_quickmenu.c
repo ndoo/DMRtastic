@@ -100,6 +100,10 @@ void overlay_quickmenu_create(void)
 	lv_obj_set_style_pad_all(s_panel, 0, LV_PART_MAIN);
 	lv_obj_set_scrollbar_mode(s_panel, LV_SCROLLBAR_MODE_OFF);
 
+	/* Created before the rows: adding the first row to the group fires its FOCUSED callback. */
+	s_dismiss_timer = lv_timer_create(dismiss_cb, DISMISS_MS, NULL);
+	lv_timer_pause(s_dismiss_timer);
+
 	for (size_t i = 0; i < ARRAY_SIZE(s_row_labels); i++) {
 		lv_obj_t *row = lv_obj_create(s_panel);
 		lv_obj_set_size(row, lv_pct(100), row_h);
@@ -130,10 +134,6 @@ void overlay_quickmenu_create(void)
 	}
 
 	lv_obj_add_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
-
-	/* Timer starts paused; resumed on first show. */
-	s_dismiss_timer = lv_timer_create(dismiss_cb, DISMISS_MS, NULL);
-	lv_timer_pause(s_dismiss_timer);
 }
 
 /** Shows the panel, remembering the previously-focused object to restore on hide. */
