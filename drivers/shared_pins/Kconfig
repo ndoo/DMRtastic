@@ -1,0 +1,4 @@
+config SHARED_PINS
+	bool "Shared pin ownership"
+	default y
+	depends on DT_HAS_HT_RADIO_SHARED_PINS_ENABLED

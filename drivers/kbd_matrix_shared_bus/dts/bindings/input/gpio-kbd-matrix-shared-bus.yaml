@@ -15,7 +15,8 @@ description: |
 
   This driver never scans on its own — there is no interrupt or internal
   polling thread. The application must call kbd_matrix_shared_bus_scan()
-  explicitly from the thread that also drives the shared pins.
+  explicitly. Without shared-pins, use the thread that also drives the
+  shared pins.
 
 compatible: "gpio-kbd-matrix-shared-bus"
 
@@ -33,6 +34,12 @@ include:
 # binding would leave that macro referencing an undefined property.
 
 properties:
+  shared-pins:
+    type: phandle
+    description: |
+      Optional shared pin ownership lock. All devices using the same pins
+      must acquire this lock before changing pin configuration or levels.
+
   col-gpios:
     type: phandle-array
     required: true

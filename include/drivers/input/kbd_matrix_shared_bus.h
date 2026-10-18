@@ -14,7 +14,7 @@
 
 /**
  * Scan the matrix once and report debounced key events via the input subsystem.
- * Must be called from the same thread that drives the peer sharing the row pins — no locking.
+ * Without shared-pins, call only from the thread driving the peer sharing the row pins.
  */
 int kbd_matrix_shared_bus_scan(const struct device *dev);
 

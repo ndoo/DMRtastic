@@ -21,6 +21,11 @@ list(APPEND ZEPHYR_EXTRA_MODULES
 # Out-of-tree input driver: keyboard matrix sharing GPIOs with the LCD bus.
 list(APPEND ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_LIST_DIR}/../drivers/kbd_matrix_shared_bus)
 
+list(APPEND ZEPHYR_EXTRA_MODULES
+	${CMAKE_CURRENT_LIST_DIR}/../drivers/shared_pins
+	${CMAKE_CURRENT_LIST_DIR}/../drivers/mipi_dbi_fsmc
+)
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(dmrtastic)
 

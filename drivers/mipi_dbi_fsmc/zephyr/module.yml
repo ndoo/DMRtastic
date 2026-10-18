@@ -1,0 +1,6 @@
+name: mipi_dbi_fsmc
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

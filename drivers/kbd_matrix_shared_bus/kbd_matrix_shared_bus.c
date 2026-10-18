@@ -10,6 +10,7 @@
 #define DT_DRV_COMPAT gpio_kbd_matrix_shared_bus
 
 #include <zephyr/device.h>
+#include <drivers/shared_pins.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/input/input_kbd_matrix.h>
 #include <zephyr/kernel.h>
@@ -21,6 +22,7 @@ LOG_MODULE_REGISTER(kbd_matrix_shared_bus, CONFIG_INPUT_LOG_LEVEL);
 
 struct kbd_matrix_shared_bus_config {
 	struct input_kbd_matrix_common_config common;
+	const struct device *pins;
 	const struct gpio_dt_spec *col_gpio; /* driven lines, dedicated pins */
 	const struct gpio_dt_spec *row_gpio; /* sensed lines, shared pins */
 };
@@ -31,8 +33,7 @@ struct kbd_matrix_shared_bus_data {
 
 INPUT_KBD_STRUCT_CHECK(struct kbd_matrix_shared_bus_config, struct kbd_matrix_shared_bus_data);
 
-/** Scan the matrix once and report debounced key events via the input subsystem. */
-int kbd_matrix_shared_bus_scan(const struct device *dev)
+static int scan_matrix(const struct device *dev)
 {
 	const struct kbd_matrix_shared_bus_config *cfg = dev->config;
 	const struct input_kbd_matrix_common_config *common = &cfg->common;
@@ -85,17 +86,44 @@ int kbd_matrix_shared_bus_scan(const struct device *dev)
 		}
 	}
 
-	for (int r = 0; r < common->row_size; r++) {
-		ret = gpio_pin_configure_dt(&cfg->row_gpio[r], GPIO_OUTPUT_LOW);
-		if (ret != 0) {
-			LOG_ERR("row %d hand-back failed: %d", r, ret);
+	return 0;
+}
+
+int kbd_matrix_shared_bus_scan(const struct device *dev)
+{
+	const struct kbd_matrix_shared_bus_config *cfg = dev->config;
+	const struct input_kbd_matrix_common_config *common = &cfg->common;
+	int ret;
+
+	if (IS_ENABLED(CONFIG_SHARED_PINS) && cfg->pins != NULL) {
+		ret = shared_pins_acquire(cfg->pins, K_FOREVER);
+		if (ret < 0) {
 			return ret;
 		}
 	}
+	ret = scan_matrix(dev);
+	/* Restore every pin even when a scan failed partway through. */
+	for (int c = 0; c < common->col_size; c++) {
+		int rc = gpio_pin_set_dt(&cfg->col_gpio[c], 0);
 
-	input_kbd_matrix_update_state(dev);
+		if (ret == 0) {
+			ret = rc;
+		}
+	}
+	for (int r = 0; r < common->row_size; r++) {
+		int rc = gpio_pin_configure_dt(&cfg->row_gpio[r], GPIO_OUTPUT_LOW);
 
-	return 0;
+		if (ret == 0) {
+			ret = rc;
+		}
+	}
+	if (IS_ENABLED(CONFIG_SHARED_PINS) && cfg->pins != NULL) {
+		shared_pins_release(cfg->pins);
+	}
+	if (ret == 0) {
+		input_kbd_matrix_update_state(dev);
+	}
+	return ret;
 }
 
 /** Validate and configure the col GPIOs; row GPIOs are left to the peer's init. */
@@ -104,6 +132,10 @@ static int kbd_matrix_shared_bus_init(const struct device *dev)
 	const struct kbd_matrix_shared_bus_config *cfg = dev->config;
 	const struct input_kbd_matrix_common_config *common = &cfg->common;
 	int ret;
+
+	if (cfg->pins != NULL && !device_is_ready(cfg->pins)) {
+		return -ENODEV;
+	}
 
 	for (int c = 0; c < common->col_size; c++) {
 		const struct gpio_dt_spec *gpio = &cfg->col_gpio[c];
@@ -155,6 +187,7 @@ static int kbd_matrix_shared_bus_init(const struct device *dev)
 	static const struct kbd_matrix_shared_bus_config kbd_matrix_shared_bus_cfg_##n = {         \
 		.common = INPUT_KBD_MATRIX_DT_INST_COMMON_CONFIG_INIT_ROW_COL(                     \
 			n, NULL, DT_INST_PROP_LEN(n, row_gpios), DT_INST_PROP_LEN(n, col_gpios)),  \
+		.pins = DEVICE_DT_GET_OR_NULL(DT_INST_PHANDLE(n, shared_pins)),                 \
 		.row_gpio = kbd_matrix_shared_bus_row_gpio_##n,                                    \
 		.col_gpio = kbd_matrix_shared_bus_col_gpio_##n,                                    \
 	};                                                                                         \

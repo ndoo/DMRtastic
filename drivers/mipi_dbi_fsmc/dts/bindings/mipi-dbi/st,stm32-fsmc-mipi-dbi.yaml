@@ -1,0 +1,36 @@
+description: |
+  STM32F4 FSMC bank 1 driving an eight-bit 8080 LCD through byte accesses.
+  RS is an FSMC address line; CS and reset are GPIOs. Pixel transfers use
+  memory-to-memory DMA with a fixed destination address.
+compatible: "st,stm32-fsmc-mipi-dbi"
+include: [mipi-dbi-controller.yaml, pinctrl-device.yaml]
+properties:
+  reg:
+    required: true
+  reg-names:
+    required: true
+    description: FSMC bank registers, command address, and data address
+  clocks:
+    required: true
+  dmas:
+    required: true
+  dma-names:
+    required: true
+  cs-gpios:
+    type: phandle-array
+    required: true
+  reset-gpios:
+    type: phandle-array
+    required: true
+  shared-pins:
+    type: phandle
+    required: true
+    description: Ownership lock shared with the keyboard scanner
+  address-setup-cycles:
+    type: int
+    required: true
+    description: Address setup duration in HCLK cycles (1 to 16)
+  data-setup-cycles:
+    type: int
+    required: true
+    description: Data setup duration in HCLK cycles (1 to 256)
