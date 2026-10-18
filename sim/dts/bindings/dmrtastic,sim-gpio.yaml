@@ -1,0 +1,13 @@
+description: Simulated 16-pin GPIO port with wire-level bus models attached.
+
+compatible: "dmrtastic,sim-gpio"
+
+include: [gpio-controller.yaml, base.yaml]
+
+properties:
+  "#gpio-cells":
+    const: 2
+
+gpio-cells:
+  - pin
+  - flags

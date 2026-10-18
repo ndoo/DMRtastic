@@ -1,0 +1,5 @@
+description: Simulated watchdog that never expires.
+
+compatible: "dmrtastic,sim-wdt"
+
+include: base.yaml

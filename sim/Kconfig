@@ -1,0 +1,44 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+config SIM_PWM
+	bool "Simulated PWM controller"
+	default y
+	depends on DT_HAS_DMRTASTIC_SIM_PWM_ENABLED
+
+config SIM_AT1846S
+	bool "Simulated AT1846S transceiver"
+	default y
+	depends on DT_HAS_DMRTASTIC_SIM_AT1846S_ENABLED
+
+config SIM_HR_C6000
+	bool "Simulated HR-C6000 baseband"
+	default y
+	depends on DT_HAS_DMRTASTIC_SIM_HR_C6000_ENABLED
+
+config SIM_FLASH
+	bool "Simulated SPI NOR flash"
+	default y
+	depends on DT_HAS_DMRTASTIC_SIM_SPI_NOR_ENABLED
+	select FLASH_JESD216
+
+config SIM_WDT
+	bool "Simulated watchdog"
+	default y
+	depends on DT_HAS_DMRTASTIC_SIM_WDT_ENABLED
+
+config SIM_GPIO
+	bool "Simulated GPIO ports"
+	default y
+	depends on DT_HAS_DMRTASTIC_SIM_GPIO_ENABLED
+	depends on GPIO
+
+config SIM_LCD
+	bool "HX8353E controller model"
+	default y
+
+config SIM_LCD_WIRE
+	bool "Decode the GPIO-driven LCD bus"
+	default y
+	depends on SIM_GPIO && SIM_LCD
+	depends on DT_HAS_ZEPHYR_MIPI_DBI_BITBANG_ENABLED
