@@ -10,6 +10,7 @@
 #include <zephyr/dt-bindings/display/panel.h>
 #include <zephyr/dt-bindings/lvgl/lvgl.h>
 #include <zephyr/dt-bindings/pwm/pwm.h>
+#include <zephyr/dt-bindings/dma/stm32_dma.h>
 
 /* Not yet in this Zephyr version's input-event-codes.h; matches Linux's KEY_NUMERIC_STAR/POUND,
  * guarded in case a future update adds them.
@@ -67,11 +68,13 @@
 		};
 	};
 
-	/* col-gpios (driven) and row-gpios (sensed) are the same 8 pins as lcd_mipi_dbi's data-gpios below;
-	 * kbd_matrix_shared_bus borrows them per scan (see that driver). Active-high, no pull -- a pull-up would source current onto the shared LCD lines.
-	 */
+	lcd_keypad_pins: shared-pins {
+		compatible = "ht-radio,shared-pins";
+	};
+
 	keypad: keypad {
 		compatible = "gpio-kbd-matrix-shared-bus";
+		shared-pins = <&lcd_keypad_pins>;
 		col-gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>,
 		            <&gpiod 2 GPIO_ACTIVE_HIGH>,
 		            <&gpiod 3 GPIO_ACTIVE_HIGH>;
@@ -186,25 +189,22 @@
 		full-ohms   = <(23100 + 10000)>;
 	};
 
-	lcd_mipi_dbi: lcd_mipi_dbi {
-		compatible = "zephyr,mipi-dbi-bitbang";
+	lcd_mipi_dbi: display-bus@a0000000 {
+		compatible = "st,stm32-fsmc-mipi-dbi";
 		status = "okay";
-		dc-gpios    = <&gpiod 12 GPIO_ACTIVE_HIGH>;
+		reg = <0xa0000000 8>, <0x60000000 1>, <0x60020000 1>;
+		reg-names = "controller", "command", "data";
+		clocks = <&rcc STM32_CLOCK(AHB3, 0)>;
+		pinctrl-0 = <&lcd_fsmc_pd14 &lcd_fsmc_pd15 &lcd_fsmc_pd0 &lcd_fsmc_pd1 &lcd_fsmc_pe7 &lcd_fsmc_pe8 &lcd_fsmc_pe9 &lcd_fsmc_pe10 &lcd_fsmc_pd12 &lcd_fsmc_pd5 &lcd_fsmc_pd4>;
+		pinctrl-names = "default";
+		cs-gpios = <&gpiod 6 GPIO_ACTIVE_LOW>;
 		reset-gpios = <&gpiod 13 GPIO_ACTIVE_LOW>;
-		/* WR is physically active-LOW (8080 write strobe); GPIO_ACTIVE_HIGH is correct here since
-		 * gpio_pin_set_dt(wr, 1) drives HIGH (latch) and (wr, 0) drives LOW (assert) -- ACTIVE_LOW would invert this and prevent any latch.
-		 */
-		wr-gpios    = <&gpiod  5 GPIO_ACTIVE_HIGH>;
-		rd-gpios    = <&gpiod  4 GPIO_ACTIVE_HIGH>;
-		cs-gpios    = <&gpiod  6 GPIO_ACTIVE_LOW>;
-		data-gpios  = <&gpiod 14 GPIO_ACTIVE_HIGH>,
-		              <&gpiod 15 GPIO_ACTIVE_HIGH>,
-		              <&gpiod  0 GPIO_ACTIVE_HIGH>,
-		              <&gpiod  1 GPIO_ACTIVE_HIGH>,
-		              <&gpioe  7 GPIO_ACTIVE_HIGH>,
-		              <&gpioe  8 GPIO_ACTIVE_HIGH>,
-		              <&gpioe  9 GPIO_ACTIVE_HIGH>,
-		              <&gpioe 10 GPIO_ACTIVE_HIGH>;
+		shared-pins = <&lcd_keypad_pins>;
+		address-setup-cycles = <8>;
+		data-setup-cycles = <16>;
+		dmas = <&dma2 0 0 (STM32_DMA_MEMORY_TO_MEMORY | STM32_DMA_PERIPH_INC)
+			STM32_DMA_FIFO_FULL>;
+		dma-names = "tx";
 		#address-cells = <1>;
 		#size-cells    = <0>;
 
@@ -545,4 +545,55 @@ zephyr_udc0: &usbotg_fs {
 	pinctrl-names = "default";
 	current-speed = <9600>;
 	status = "okay";
+};
+
+&dma2 {
+	status = "okay";
+};
+
+&pinctrl {
+	lcd_fsmc_pd14: lcd-fsmc-pd14 {
+		pinmux = <STM32_PINMUX('D', 14, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pd15: lcd-fsmc-pd15 {
+		pinmux = <STM32_PINMUX('D', 15, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pd0: lcd-fsmc-pd0 {
+		pinmux = <STM32_PINMUX('D', 0, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pd1: lcd-fsmc-pd1 {
+		pinmux = <STM32_PINMUX('D', 1, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pe7: lcd-fsmc-pe7 {
+		pinmux = <STM32_PINMUX('E', 7, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pe8: lcd-fsmc-pe8 {
+		pinmux = <STM32_PINMUX('E', 8, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pe9: lcd-fsmc-pe9 {
+		pinmux = <STM32_PINMUX('E', 9, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pe10: lcd-fsmc-pe10 {
+		pinmux = <STM32_PINMUX('E', 10, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pd12: lcd-fsmc-pd12 {
+		pinmux = <STM32_PINMUX('D', 12, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pd5: lcd-fsmc-pd5 {
+		pinmux = <STM32_PINMUX('D', 5, AF12)>;
+		slew-rate = "very-high-speed";
+	};
+	lcd_fsmc_pd4: lcd-fsmc-pd4 {
+		pinmux = <STM32_PINMUX('D', 4, AF12)>;
+		slew-rate = "very-high-speed";
+	};
 };

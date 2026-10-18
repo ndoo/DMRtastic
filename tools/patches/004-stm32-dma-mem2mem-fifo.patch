@@ -1,0 +1,22 @@
+Subject: [PATCH] dma: stm32: enable FIFO for single-beat memory transfers
+
+Enable FIFO for memory-to-memory transfers with single memory beats.
+The FIFO/burst helper rejects single beats, which otherwise selects
+unsupported direct mode for this direction. Keep peripheral transfers
+and the existing burst compatibility checks unchanged.
+
+---
+--- a/drivers/dma/dma_stm32.c
++++ b/drivers/dma/dma_stm32.c
+@@ -491,7 +491,10 @@
+ 	DMA_InitStruct.FIFOThreshold = stm32_dma_get_fifo_threshold(
+ 					config->head_block->fifo_mode_control);
+ 
+-	if (stm32_dma_check_fifo_mburst(&DMA_InitStruct)) {
++	/* Memory-to-memory transfers cannot use direct mode, even for single beats. */
++	if (stm32_dma_check_fifo_mburst(&DMA_InitStruct) ||
++	    (config->channel_direction == MEMORY_TO_MEMORY &&
++	     DMA_InitStruct.MemBurst == LL_DMA_MBURST_SINGLE)) {
+ 		DMA_InitStruct.FIFOMode = LL_DMA_FIFOMODE_ENABLE;
+ 	} else {
+ 		DMA_InitStruct.FIFOMode = LL_DMA_FIFOMODE_DISABLE;

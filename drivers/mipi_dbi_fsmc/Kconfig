@@ -1,0 +1,9 @@
+config MIPI_DBI_STM32_FSMC
+	bool "STM32F4 FSMC eight-bit MIPI DBI with DMA"
+	default y
+	depends on DT_HAS_ST_STM32_FSMC_MIPI_DBI_ENABLED
+	depends on SOC_SERIES_STM32F4X
+	select MIPI_DBI
+	select DMA
+	select PINCTRL
+	select GPIO

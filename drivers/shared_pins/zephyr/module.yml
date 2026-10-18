@@ -1,0 +1,6 @@
+name: shared_pins
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

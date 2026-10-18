@@ -3,6 +3,8 @@
 cmake_minimum_required(VERSION 3.20.0)
 list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 list(APPEND ZEPHYR_EXTRA_MODULES
+     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/shared_pins
+     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/mipi_dbi_fsmc
      ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hx8353e
      ${CMAKE_CURRENT_SOURCE_DIR}/drivers/spi/spi_bitbang_irq
      ${CMAKE_CURRENT_SOURCE_DIR}/drivers/radio/at1846s

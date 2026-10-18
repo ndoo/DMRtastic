@@ -14,7 +14,9 @@ config INPUT_KBD_MATRIX_SHARED_BUS
 	  Unlike CONFIG_INPUT_GPIO_KBD_MATRIX, this driver has no interrupt or
 	  internal polling thread of its own — it never touches the shared
 	  pins except during a scan. The application must call
-	  kbd_matrix_shared_bus_scan() explicitly, from the same thread that
-	  drives the other peripheral sharing the pins, whenever it wants a
+	  kbd_matrix_shared_bus_scan() explicitly whenever it wants a
 	  scan to happen (e.g. once per display refresh). See
 	  include/drivers/input/kbd_matrix_shared_bus.h.
+
+	  The shared-pins property coordinates access with other drivers. Without
+	  it, scans must run on the thread that drives the shared peripheral.
