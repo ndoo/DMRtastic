@@ -13,9 +13,10 @@
 #                                    PNGs written under sim/out/ appear on the host there.
 #                                    The console (USB CDC stand-in) is a pty inside the container;
 #                                    -attach_uart_cmd='<cmd using %s for the pty path>' attaches a client.
-#                                    The codeplug flash is a fresh copy of
-#                                    local/radio_stock_backup.bin (or $SIM_CODEPLUG) at
-#                                    sim/out/codeplug.bin; the original is never opened.
+#                                    The codeplug flash at sim/out/codeplug.bin is, in order of
+#                                    preference: a copy of $SIM_CODEPLUG, an image generated from
+#                                    local/radio_codeplug.json by tools/gen_sim_codeplug.py, or a
+#                                    copy of local/radio_stock_backup.bin. The sources are only read.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,12 +84,20 @@ cmd_run() {
     take_display "$@"
     set -- ${REST[@]+"${REST[@]}"}
     mkdir -p "$ROOT/sim/out"
-    local stock="${SIM_CODEPLUG:-}" main_root args=("$@")
+    local stock="${SIM_CODEPLUG:-}" json="" main_root args=("$@")
     if [[ -z "$stock" ]]; then
         main_root="$(git -C "$ROOT" worktree list --porcelain | sed -n '1s/^worktree //p')"
-        for stock in "$ROOT/local/radio_stock_backup.bin" "$main_root/local/radio_stock_backup.bin"; do
-            [[ -f "$stock" ]] && break
+        for json in "$ROOT/local/radio_codeplug.json" "$main_root/local/radio_codeplug.json"; do
+            [[ -f "$json" ]] && break
         done
+        if [[ -f "$json" ]]; then
+            python3 "$ROOT/tools/gen_sim_codeplug.py" --in "$json" --out "$ROOT/sim/out/codeplug.bin"
+            args+=(-codeplug=sim/out/codeplug.bin)
+        else
+            for stock in "$ROOT/local/radio_stock_backup.bin" "$main_root/local/radio_stock_backup.bin"; do
+                [[ -f "$stock" ]] && break
+            done
+        fi
     fi
     if [[ -f "$stock" ]]; then
         cp "$stock" "$ROOT/sim/out/codeplug.bin"

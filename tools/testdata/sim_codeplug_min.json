@@ -1,0 +1,42 @@
+{
+  "general": {"radioName": "N0CALL", "radioType": "MK22", "dmrId": 1234567, "callsign": "N0CALL",
+              "infoLine1": "Test Radio", "infoLine2": "Line Two", "bootScreenMode": "Text",
+              "bootPasswordEnabled": false, "displayMode": "Normal"},
+  "bandLimits": {"vhfMin": 136000000, "vhfMax": 174000000, "uhfMin": 400000000, "uhfMax": 480000000},
+  "channels": [
+    {"number": 1, "name": "Simplex 2m", "type": "Analogue", "rxFreq": 146.52, "txFreq": 146.52,
+     "bandwidth": 25, "rxTone": "None", "txTone": "None", "squelch": "Default", "power": "Master"},
+    {"number": 2, "name": "Repeater A", "type": "Analogue", "rxFreq": 147.0, "txFreq": 147.6,
+     "bandwidth": 12.5, "rxTone": "103.5", "txTone": "103.5", "power": "500mW | 0.5W"},
+    {"number": 3, "name": "DCS Test", "type": "Analogue", "rxFreq": 438.5, "txFreq": 433.5,
+     "bandwidth": 12.5, "rxTone": "D023N", "txTone": "D754I", "power": "5W", "zoneSkip": true},
+    {"number": 4, "name": "Calling 70cm", "type": "Analogue", "rxFreq": 433.5, "txFreq": 433.5,
+     "bandwidth": 25, "rxTone": "None", "txTone": "None", "rxOnly": true},
+    {"number": 5, "name": "DMR Local", "type": "Digital", "rxFreq": 439.4, "txFreq": 434.4,
+     "bandwidth": 12.5, "colorCode": 1, "timeslot": 2, "contact": "TG 9", "tgList": "Local",
+     "overrideDmrId": true, "dmrId": 7654321, "scanList": "Scan1", "tot": 180},
+    {"number": 9, "name": "Simplex 2m", "type": "Analogue", "rxFreq": 145.5, "txFreq": 145.5,
+     "bandwidth": 12.5, "rxTone": "88.5", "txTone": "None"}
+  ],
+  "contacts": [
+    {"name": "TG 9", "dmrId": 9, "type": "Group", "tsOverride": "None"},
+    {"name": "TG 91", "dmrId": 91, "type": "Group", "tsOverride": "TS1"},
+    {"name": "Test Private", "dmrId": 7654321, "type": "Private", "tsOverride": "None"}
+  ],
+  "tgLists": [{"name": "Local", "contacts": ["TG 9", "TG 91"]}],
+  "zones": [
+    {"name": "Analogue", "channels": ["Simplex 2m", "Repeater A", "DCS Test", "Missing"]},
+    {"name": "Digital", "channels": ["DMR Local", "Calling 70cm"]}
+  ],
+  "aprs": [],
+  "dtmf": [],
+  "dtmfSettings": {},
+  "scanLists": [{"index": 1, "name": "Scan1", "channels": ["Repeater A", "DCS Test"],
+                 "priorityCh1": null, "priorityCh2": null}],
+  "vfoA": {"rxFreq": 145.5, "txFreq": 145.5, "type": "Analogue", "power": "Master",
+           "bandwidth": 12.5, "rxTone": "None", "txTone": "None", "squelch": "Default",
+           "colorCode": 1, "timeslot": 1, "contact": null, "tgList": null, "tot": 0},
+  "vfoB": {"rxFreq": 433.0, "txFreq": 433.0, "type": "Analogue", "power": "Master",
+           "bandwidth": 25, "rxTone": "None", "txTone": "None", "squelch": "Default",
+           "colorCode": 1, "timeslot": 1, "contact": null, "tgList": null, "tot": 0}
+}
