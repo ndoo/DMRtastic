@@ -1,0 +1,309 @@
+/*
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ * SPDX-License-Identifier: MIT
+ */
+
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/input/keymap.h>
+#include <zephyr/dt-bindings/lvgl/lvgl.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+#ifndef INPUT_KEY_NUMERIC_STAR
+#define INPUT_KEY_NUMERIC_STAR  0x20a
+#endif
+#ifndef INPUT_KEY_NUMERIC_POUND
+#define INPUT_KEY_NUMERIC_POUND 0x20b
+#endif
+
+#define VOL_AXIS_ADC_MIN 24
+#define VOL_AXIS_ADC_MAX 1960
+
+/ {
+	chosen {
+		zephyr,display = &hx8353e;
+	};
+
+	aliases {
+		led0 = &led_green;
+		led1 = &led_red;
+		gps-en = &gps_en;
+		watchdog0 = &iwdg;
+	};
+
+	gpioa: gpio_port_a {
+		compatible = "dmrtastic,sim-gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+		status = "okay";
+	};
+
+	gpiob: gpio_port_b {
+		compatible = "dmrtastic,sim-gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+		status = "okay";
+	};
+
+	gpioc: gpio_port_c {
+		compatible = "dmrtastic,sim-gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+		status = "okay";
+	};
+
+	gpiod: gpio_port_d {
+		compatible = "dmrtastic,sim-gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+		status = "okay";
+	};
+
+	gpioe: gpio_port_e {
+		compatible = "dmrtastic,sim-gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+		status = "okay";
+	};
+
+	board_leds: board_leds {
+		compatible = "gpio-leds";
+		led_green: led_green {
+			gpios = <&gpioe 0 GPIO_ACTIVE_HIGH>;
+		};
+		led_red: led_red {
+			gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
+		};
+		gps_en: gps_en {
+			gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	iwdg: iwdg {
+		compatible = "dmrtastic,sim-wdt";
+	};
+
+	pwm3: pwm {
+		compatible = "dmrtastic,sim-pwm";
+		#pwm-cells = <3>;
+	};
+
+	at1846s: at1846s {
+		compatible = "dmrtastic,sim-at1846s";
+		volume-taper = "audio-a";
+	};
+
+	hr_c6000: hr_c6000 {
+		compatible = "dmrtastic,sim-hr-c6000";
+	};
+
+	keypad: keypad {
+		compatible = "gpio-kbd-matrix-shared-bus";
+		col-gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>,
+		            <&gpiod 2 GPIO_ACTIVE_HIGH>,
+		            <&gpiod 3 GPIO_ACTIVE_HIGH>;
+		row-gpios = <&gpiod 14 GPIO_ACTIVE_HIGH>,
+		            <&gpiod 15 GPIO_ACTIVE_HIGH>,
+		            <&gpiod  0 GPIO_ACTIVE_HIGH>,
+		            <&gpiod  1 GPIO_ACTIVE_HIGH>,
+		            <&gpioe  7 GPIO_ACTIVE_HIGH>,
+		            <&gpioe  8 GPIO_ACTIVE_HIGH>,
+		            <&gpioe  9 GPIO_ACTIVE_HIGH>,
+		            <&gpioe 10 GPIO_ACTIVE_HIGH>;
+
+		keymap {
+			compatible = "input-keymap";
+			row-size = <8>;
+			col-size = <3>;
+			keymap = <
+				MATRIX_KEY(0, 0, INPUT_KEY_1)
+				MATRIX_KEY(1, 0, INPUT_KEY_2)
+				MATRIX_KEY(2, 0, INPUT_KEY_3)
+				MATRIX_KEY(3, 0, INPUT_KEY_4)
+				MATRIX_KEY(4, 0, INPUT_KEY_5)
+				MATRIX_KEY(5, 0, INPUT_KEY_6)
+				MATRIX_KEY(6, 0, INPUT_KEY_0)
+				MATRIX_KEY(7, 0, INPUT_KEY_NUMERIC_STAR)
+
+				MATRIX_KEY(0, 1, INPUT_KEY_ENTER)
+				MATRIX_KEY(1, 1, INPUT_KEY_UP)
+				MATRIX_KEY(2, 1, INPUT_KEY_DOWN)
+				MATRIX_KEY(3, 1, INPUT_KEY_7)
+				MATRIX_KEY(4, 1, INPUT_KEY_8)
+				MATRIX_KEY(5, 1, INPUT_KEY_9)
+				MATRIX_KEY(6, 1, INPUT_KEY_NUMERIC_POUND)
+				MATRIX_KEY(7, 1, INPUT_KEY_BACK)
+
+				MATRIX_KEY(6, 2, INPUT_KEY_F16)
+				MATRIX_KEY(7, 2, INPUT_KEY_F15)
+			>;
+		};
+	};
+
+	ptt_buttons: ptt_buttons {
+		compatible = "gpio-keys";
+		polling-mode;
+		ptt: ptt {
+			gpios = <&gpioe 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_F13>;
+		};
+		ptt_external: ptt_external {
+			gpios = <&gpioe 12 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_F14>;
+		};
+	};
+
+	rotary_encoder: rotary_encoder {
+		compatible = "gpio-qdec";
+		gpios = <&gpioe 14 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
+		        <&gpiob 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		steps-per-period = <2>;
+		sample-time-us = <250>;
+		idle-timeout-ms = <200>;
+		zephyr,axis = <INPUT_REL_Y>;
+	};
+
+	lvgl_keypad: lvgl-keypad-input {
+		compatible = "zephyr,lvgl-keypad-input";
+		input-codes = <INPUT_KEY_UP INPUT_KEY_DOWN INPUT_KEY_ENTER>;
+		lvgl-codes = <LV_KEY_PREV LV_KEY_NEXT LV_KEY_ENTER>;
+	};
+
+	vol_axis: vol_axis {
+		compatible = "analog-axis";
+		poll-period-ms = <50>;
+		vol_axis_ch: axis-volume {
+			io-channels = <&adc0 0>;
+			in-min  = <VOL_AXIS_ADC_MIN>;
+			in-max  = <VOL_AXIS_ADC_MAX>;
+			out-min = <VOL_AXIS_ADC_MIN>;
+			out-max = <VOL_AXIS_ADC_MAX>;
+			zephyr,axis = <INPUT_ABS_THROTTLE>;
+		};
+	};
+
+	battery: battery {
+		compatible = "voltage-divider";
+		io-channels = <&adc0 1>;
+		output-ohms = <10000>;
+		full-ohms   = <(23100 + 10000)>;
+	};
+
+	lcd_mipi_dbi: lcd_mipi_dbi {
+		compatible = "zephyr,mipi-dbi-bitbang";
+		status = "okay";
+		dc-gpios    = <&gpiod 12 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpiod 13 GPIO_ACTIVE_LOW>;
+		wr-gpios    = <&gpiod  5 GPIO_ACTIVE_HIGH>;
+		rd-gpios    = <&gpiod  4 GPIO_ACTIVE_HIGH>;
+		cs-gpios    = <&gpiod  6 GPIO_ACTIVE_LOW>;
+		data-gpios  = <&gpiod 14 GPIO_ACTIVE_HIGH>,
+		              <&gpiod 15 GPIO_ACTIVE_HIGH>,
+		              <&gpiod  0 GPIO_ACTIVE_HIGH>,
+		              <&gpiod  1 GPIO_ACTIVE_HIGH>,
+		              <&gpioe  7 GPIO_ACTIVE_HIGH>,
+		              <&gpioe  8 GPIO_ACTIVE_HIGH>,
+		              <&gpioe  9 GPIO_ACTIVE_HIGH>,
+		              <&gpioe 10 GPIO_ACTIVE_HIGH>;
+		#address-cells = <1>;
+		#size-cells    = <0>;
+
+		hx8353e: hx8353e@0 {
+			compatible = "himax,hx8353e";
+			reg = <0>;
+			mipi-max-frequency = <15000000>;
+			mipi-mode = "MIPI_DBI_MODE_8080_BUS_8_BIT";
+			width    = <160>;
+			height   = <128>;
+			rotation = <90>;
+			pwms = <&pwm3 1 PWM_USEC(10000) PWM_POLARITY_NORMAL>;
+		};
+	};
+
+	w25q_codeplug: w25q_codeplug {
+		compatible = "dmrtastic,sim-spi-nor";
+		size = <0x1000000>;
+		jedec-id = [ef 40 18];
+	};
+
+	codeplug_map: codeplug-map {
+		compatible = "ht-radio,codeplug-map";
+		codeplug-flash = <&w25q_codeplug>;
+
+		device-info        = <0x00000080 0x00000060>;
+		general-settings    = <0x000000e0 0x00000028>;
+		signalling-dtmf     = <0x00001400 0x00000078>;
+		signalling-dtmf-durations = <0x00001472 0x00000005>;
+		aprs-configs        = <0x00001588 0x00000200>;
+		dtmf-contacts       = <0x00002f88 0x000007e0>;
+		channels-bank1      = <0x00003780 0x00001c10>;
+		last-used-channel   = <0x00006000 0x0000004a>;
+		nv-settings         = <0x0000604b 0x00000100>;
+		boot-password       = <0x00007518 0x0000000c>;
+		quickkeys           = <0x00007524 0x00000014>;
+		boot-lines          = <0x00007540 0x00000020>;
+		vfo-channels        = <0x00007590 0x00000070>;
+		zones-ext           = <0x00008000 0x00002ef0>;
+		calibration         = <0x00010000 0x00000200>;
+		custom-data         = <0x00020000 0x00010000>;
+		channels-ext        = <0x0009b1b0 0x0000c470>;
+		contacts            = <0x000a7620 0x00006000>;
+		rx-group-lists      = <0x000ad620 0x00001840>;
+	};
+
+	usart1: gps_uart {
+		compatible = "zephyr,uart-emul";
+		current-speed = <9600>;
+		status = "okay";
+	};
+};
+
+&sdl_dc {
+	status = "disabled";
+};
+
+&input_sdl_touch {
+	status = "disabled";
+};
+
+&adc0 {
+	ref-internal-mv = <3300>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@1 {
+		reg = <1>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+};
+
+/delete-node/ &zephyr_udc0;
+
+/ {
+	zephyr_udc0: udc_vrt0 {
+		compatible = "zephyr,udc-virtual";
+		num-bidir-endpoints = <8>;
+		maximum-speed = "full-speed";
+
+		cdc_acm_uart0: cdc_acm_uart0 {
+			compatible = "zephyr,cdc-acm-uart";
+		};
+	};
+};

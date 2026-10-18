@@ -1,0 +1,16 @@
+description: Simulated SPI NOR flash with JEDEC ID readback.
+
+compatible: "dmrtastic,sim-spi-nor"
+
+include: base.yaml
+
+properties:
+  size:
+    type: int
+    required: true
+    description: Capacity in bytes.
+
+  jedec-id:
+    type: uint8-array
+    required: true
+    description: Manufacturer, memory type and capacity bytes.

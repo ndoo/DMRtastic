@@ -1,0 +1,11 @@
+description: Simulated AT1846S transceiver implementing radio_transceiver.h.
+
+compatible: "dmrtastic,sim-at1846s"
+
+include: base.yaml
+
+properties:
+  volume-taper:
+    type: string
+    enum: ["linear", "audio-a"]
+    default: "linear"

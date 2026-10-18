@@ -1,0 +1,5 @@
+description: Simulated HR-C6000 baseband implementing radio_baseband.h.
+
+compatible: "dmrtastic,sim-hr-c6000"
+
+include: base.yaml

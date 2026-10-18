@@ -1,0 +1,18 @@
+# Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+# SPDX-License-Identifier: MIT
+
+# Workspace manifest for the native_sim build (tools/sim.sh). The ARM firmware
+# build uses PlatformIO's bundled framework instead.
+manifest:
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.4.1
+      import:
+        name-allowlist:
+          - lvgl
+  self:
+    path: app
