@@ -11,6 +11,7 @@ Manual check: python tools/apply_patches.py
 
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -100,7 +101,15 @@ def apply_patch(patch_path):
         print(f"  skip  {name} (already applied)")
         return
 
-    # -l ignores whitespace differences (handles CRLF package files on macOS)
+    # GNU patch -l does not match LF hunks against CRLF package files.
+    with open(patch_path) as f:
+        for line in f:
+            if line.startswith("--- a/"):
+                target = Path(FRAMEWORK_DIR) / line.split(None, 1)[1].strip()[2:]
+                content = target.read_bytes()
+                if b"\r\n" in content:
+                    target.write_bytes(content.replace(b"\r\n", b"\n"))
+
     with open(patch_path) as f:
         r = subprocess.run(
             ["patch", "-d", FRAMEWORK_DIR, "-p1", "--forward", "-l"],
