@@ -22,3 +22,6 @@ tools/.font_cache/
 # Simulator output (PNG dumps)
 sim/out/
 flash.bin
+
+# Radio backups and codeplug exports
+local/
