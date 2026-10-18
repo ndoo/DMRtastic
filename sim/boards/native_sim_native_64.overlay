@@ -258,7 +258,8 @@
 	};
 
 	usart1: gps_uart {
-		compatible = "zephyr,native-pty-uart";
+		compatible = "zephyr,uart-emul";
+		current-speed = <9600>;
 		status = "okay";
 	};
 };

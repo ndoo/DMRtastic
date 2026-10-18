@@ -42,3 +42,19 @@ config SIM_LCD_WIRE
 	default y
 	depends on SIM_GPIO && SIM_LCD
 	depends on DT_HAS_ZEPHYR_MIPI_DBI_BITBANG_ENABLED
+
+config SIM_INPUT
+	bool "Keypad, PTT, encoder, volume and battery models"
+	default y
+	depends on SIM_GPIO && ADC_EMUL
+
+config SIM_GPS
+	bool "GPS module model"
+	default y
+	depends on SIM_GPIO && UART_EMUL
+
+config SIM_CDC_UART
+	bool "Console UART standing in for USB CDC ACM"
+	default y
+	depends on DT_HAS_ZEPHYR_CDC_ACM_UART_ENABLED && !USBD_CDC_ACM_CLASS
+	depends on SERIAL

@@ -10,11 +10,17 @@
 #include <zephyr/drivers/flash.h>
 #include <zephyr/kernel.h>
 
+#include <cmdline.h>
+#include <soc.h>
+
+#include <sim/sim_host.h>
+
 #define SIM_FLASH_SIZE     DT_INST_PROP(0, size)
 #define SIM_FLASH_SECTOR   4096U
 #define SIM_FLASH_ERASED   0xFF
 
 static uint8_t sim_flash_mem[SIM_FLASH_SIZE];
+static char *sim_flash_path;
 
 static const struct flash_parameters sim_flash_params = {
 	.write_block_size = 1,
@@ -125,8 +131,38 @@ static int sim_flash_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 	memset(sim_flash_mem, SIM_FLASH_ERASED, sizeof(sim_flash_mem));
+	if (sim_flash_path != NULL &&
+	    sim_host_read_file(sim_flash_path, sim_flash_mem, sizeof(sim_flash_mem)) < 0) {
+		return -EIO;
+	}
 	return 0;
 }
+
+static void sim_flash_options(void)
+{
+	static struct args_struct_t opts[] = {
+		{
+			.option = "codeplug",
+			.name = "path",
+			.type = 's',
+			.dest = (void *)&sim_flash_path,
+			.descript = "Codeplug flash image, loaded at start and written back at exit",
+		},
+		ARG_TABLE_ENDMARKER,
+	};
+
+	native_add_command_line_opts(opts);
+}
+
+static void sim_flash_save(void)
+{
+	if (sim_flash_path != NULL) {
+		sim_host_write_file(sim_flash_path, sim_flash_mem, sizeof(sim_flash_mem));
+	}
+}
+
+NATIVE_TASK(sim_flash_options, PRE_BOOT_1, 1);
+NATIVE_TASK(sim_flash_save, ON_EXIT, 1);
 
 DEVICE_DT_INST_DEFINE(0, sim_flash_init, NULL, NULL, NULL, POST_KERNEL,
 		      CONFIG_FLASH_INIT_PRIORITY, &sim_flash_api);

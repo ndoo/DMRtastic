@@ -5,13 +5,30 @@
 
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 
+#include <stdlib.h>
+
+#include <zephyr/init.h>
+
 #include <drivers/radio/radio_transceiver.h>
 
-#define SIM_NOISE_IDLE 120
+#include <sim/sim_ctl.h>
+#include <sim/sim_radio.h>
+
+#define SIM_NOISE_IDLE     120
+#define SIM_NOISE_FLOOR    8
+#define SIM_SQUELCH_HYST   3
+#define SIM_MAX_SIGNALS    8
+#define SIM_CHANNEL_HALF_HZ 6250U
+
+struct sim_signal {
+	uint32_t freq_hz;
+	uint8_t level;
+};
 
 struct sim_at1846s_data {
 	uint16_t regs[128];
@@ -19,21 +36,73 @@ struct sim_at1846s_data {
 	uint32_t tx_hz;
 	uint8_t volume;
 	uint8_t squelch;
+	bool sq_open;
 	radio_trx_squelch_fn_t squelch_cb;
 	radio_trx_css_fn_t css_cb;
 };
 
 static struct sim_at1846s_data sim_at1846s_data;
+static struct sim_signal signals[SIM_MAX_SIGNALS];
+static int nsignals;
+
+static uint8_t sim_signal_level(uint32_t rx_hz)
+{
+	uint8_t best = 0;
+
+	for (int i = 0; i < nsignals; i++) {
+		uint32_t diff = rx_hz > signals[i].freq_hz ? rx_hz - signals[i].freq_hz
+							   : signals[i].freq_hz - rx_hz;
+
+		if (diff <= SIM_CHANNEL_HALF_HZ && signals[i].level > best) {
+			best = signals[i].level;
+		}
+	}
+	return best;
+}
+
+static void sim_noise_signal(const struct sim_at1846s_data *d, uint8_t *signal, uint8_t *noise)
+{
+	uint8_t level = sim_signal_level(d->rx_hz);
+
+	*signal = level;
+	*noise = level == 0 ? SIM_NOISE_IDLE : MAX(SIM_NOISE_FLOOR, SIM_NOISE_IDLE - level);
+}
+
+static void sim_squelch_update(const struct device *dev)
+{
+	struct sim_at1846s_data *d = dev->data;
+	uint8_t signal;
+	uint8_t noise;
+	bool open = d->sq_open;
+
+	sim_noise_signal(d, &signal, &noise);
+	if (!open && noise < d->squelch) {
+		open = true;
+	} else if (open && noise > d->squelch + SIM_SQUELCH_HYST) {
+		open = false;
+	}
+	if (open != d->sq_open) {
+		d->sq_open = open;
+		if (d->squelch_cb != NULL) {
+			d->squelch_cb(dev, open);
+		}
+	}
+}
 
 static int sim_set_frequency(const struct device *dev, uint32_t freq_hz, bool tx)
 {
 	struct sim_at1846s_data *d = dev->data;
 
+	uint32_t reg = (uint32_t)((uint64_t)freq_hz * 2 / 125);
+
 	if (tx) {
 		d->tx_hz = freq_hz;
-	} else {
-		d->rx_hz = freq_hz;
+		return 0;
 	}
+	d->rx_hz = freq_hz;
+	d->regs[0x29] = reg >> 16;
+	d->regs[0x2A] = reg & 0xFFFF;
+	sim_squelch_update(dev);
 	return 0;
 }
 
@@ -85,9 +154,7 @@ static int sim_check_css(const struct device *dev, uint16_t tone, enum radio_css
 
 static int sim_get_rssi(const struct device *dev, uint8_t *signal, uint8_t *noise)
 {
-	ARG_UNUSED(dev);
-	*signal = 0;
-	*noise = SIM_NOISE_IDLE;
+	sim_noise_signal(dev->data, signal, noise);
 	return 0;
 }
 
@@ -104,6 +171,7 @@ static int sim_set_squelch(const struct device *dev, uint8_t level)
 	struct sim_at1846s_data *d = dev->data;
 
 	d->squelch = level;
+	sim_squelch_update(dev);
 	return 0;
 }
 
@@ -160,7 +228,7 @@ static int sim_read_raw(const struct device *dev, uint8_t reg, uint8_t *hi, uint
 		return -EINVAL;
 	}
 	if (reg == 0x1B) {
-		sim_get_rssi(dev, &signal, &noise);
+		sim_noise_signal(d, &signal, &noise);
 		*hi = signal;
 		*lo = noise;
 		return 0;
@@ -192,6 +260,58 @@ static const struct radio_trx_api sim_at1846s_api = {
 	.write_raw = sim_write_raw,
 	.read_raw = sim_read_raw,
 };
+
+int sim_radio_set_signal(uint32_t freq_hz, uint8_t level)
+{
+	for (int i = 0; i < nsignals; i++) {
+		if (signals[i].freq_hz == freq_hz) {
+			signals[i].level = level;
+			goto done;
+		}
+	}
+	if (nsignals >= SIM_MAX_SIGNALS) {
+		return -ENOMEM;
+	}
+	signals[nsignals].freq_hz = freq_hz;
+	signals[nsignals].level = level;
+	nsignals++;
+done:
+	sim_squelch_update(DEVICE_DT_GET(DT_NODELABEL(at1846s)));
+	return 0;
+}
+
+void sim_radio_clear_signals(void)
+{
+	nsignals = 0;
+	sim_squelch_update(DEVICE_DT_GET(DT_NODELABEL(at1846s)));
+}
+
+/* "signal <MHz|Hz> <level>" adds a signal; "signal clear" removes all. */
+static int cmd_signal(int argc, char **argv)
+{
+	char *end;
+	double v;
+
+	if (argc == 2 && strcmp(argv[1], "clear") == 0) {
+		sim_radio_clear_signals();
+		return 0;
+	}
+	if (argc != 3) {
+		return -EINVAL;
+	}
+	v = strtod(argv[1], &end);
+	if (v < 1000000.0) {
+		v *= 1000000.0;
+	}
+	return sim_radio_set_signal((uint32_t)(v + 0.5), strtoul(argv[2], NULL, 0));
+}
+
+static int sim_at1846s_ctl_init(void)
+{
+	return sim_ctl_register("signal", cmd_signal);
+}
+
+SYS_INIT(sim_at1846s_ctl_init, POST_KERNEL, 2);
 
 #define SIM_AT1846S_INIT(n)                                                                        \
 	DEVICE_DT_INST_DEFINE(n, NULL, NULL, &sim_at1846s_data, NULL, POST_KERNEL,                 \

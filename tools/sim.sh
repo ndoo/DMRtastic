@@ -4,7 +4,14 @@
 #
 # Build and run the native_sim target inside Docker (colima on macOS).
 #   tools/sim.sh build [--rebuild]   build the image if needed, then the app
-#   tools/sim.sh run                 run build/sim/zephyr/zephyr.exe
+#   tools/sim.sh run [args]          run build/sim/zephyr/zephyr.exe; args go to the binary
+#                                    e.g. -script=sim/scenarios/x.txt -lcd-png=sim/out/final.png
+#                                    PNGs written under sim/out/ appear on the host there.
+#                                    The console (USB CDC stand-in) is a pty inside the container;
+#                                    -attach_uart_cmd='<cmd using %s for the pty path>' attaches a client.
+#                                    The codeplug flash is a fresh copy of
+#                                    local/radio_stock_backup.bin (or $SIM_CODEPLUG) at
+#                                    sim/out/codeplug.bin; the original is never opened.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,11 +56,24 @@ cmd_build() {
 }
 
 cmd_run() {
-    dock -t "$IMAGE" app/build/sim/zephyr/zephyr.exe
+    mkdir -p "$ROOT/sim/out"
+    local stock="${SIM_CODEPLUG:-}" main_root args=("$@")
+    if [[ -z "$stock" ]]; then
+        main_root="$(git -C "$ROOT" worktree list --porcelain | sed -n '1s/^worktree //p')"
+        for stock in "$ROOT/local/radio_stock_backup.bin" "$main_root/local/radio_stock_backup.bin"; do
+            [[ -f "$stock" ]] && break
+        done
+    fi
+    if [[ -f "$stock" ]]; then
+        cp "$stock" "$ROOT/sim/out/codeplug.bin"
+        args+=(-codeplug=sim/out/codeplug.bin)
+    fi
+    set -- "${args[@]}"
+    dock -t -w /ws/app "$IMAGE" build/sim/zephyr/zephyr.exe "$@"
 }
 
 case "${1:-}" in
     build) shift; cmd_build "$@" ;;
-    run) cmd_run ;;
-    *) echo "usage: $0 build [--rebuild] | run" >&2; exit 2 ;;
+    run) shift; cmd_run "$@" ;;
+    *) echo "usage: $0 build [--rebuild] | run [args]" >&2; exit 2 ;;
 esac
