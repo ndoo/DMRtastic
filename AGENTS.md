@@ -47,7 +47,8 @@ or an emulated Cortex-M4, and the tools around both.
   progress.
 - Put an independent fix in its own, earlier PR. After it lands, rebase the
   dependent PR onto `main`.
-- Write the PR title as the squash subject: imperative, near 50 characters.
+- Write the PR title as the squash subject, in the commit subject format
+  below.
 - When you squash-merge, keep GitHub's default commit title and message:
   `gh pr merge N --squash` without `--subject` or `--body`.
 - Before pushing, run:
@@ -59,9 +60,15 @@ or an emulated Cortex-M4, and the tools around both.
 
 ## Commits
 
-- Subject near 50 characters, blank line, body wrapped at 72 columns.
-- Write the subject and every sentence that names a change in the imperative
-  mood ("Add X", "Move Y to Z"), not past or present tense.
+- Subject in Conventional Commits form, `type(scope): description`, near 50
+  characters including the prefix. Then a blank line and a body wrapped at 72
+  columns.
+- Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`,
+  `chore`. The scope is optional and names the area (`sim`, `view`, `cps`,
+  `tx`). Mark a breaking change with `!` after the scope.
+- Start the description in lower case. Write it and every sentence that names
+  a change in the imperative mood ("add X", "move Y to Z"), not past or
+  present tense. No trailing period.
 - Body order: the change, then the motivation, then what is deliberately left
   untouched and why. The last two are optional for small changes. One short
   paragraph each.
