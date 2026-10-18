@@ -1,0 +1,5 @@
+description: Simulated MIPI DBI controller that calls the HX8353E model directly.
+
+compatible: "dmrtastic,sim-mipi-dbi"
+
+include: mipi-dbi-controller.yaml

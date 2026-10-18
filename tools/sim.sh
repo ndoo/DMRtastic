@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: MIT
 #
 # Build and run the native_sim target inside Docker (colima on macOS).
-#   tools/sim.sh build [--rebuild]   build the image if needed, then the app
-#   tools/sim.sh run [args]          run build/sim/zephyr/zephyr.exe; args go to the binary
+#   tools/sim.sh build [--rebuild] [--display=wire|dbi]
+#                                    build the image if needed, then the app. wire (default)
+#                                    decodes the GPIO 8080 bus; dbi swaps in an API-level
+#                                    MIPI DBI model for fast runs (separate build dir).
+#   tools/sim.sh run [--display=wire|dbi] [args]
+#                                    run the built binary; other args go to it
 #                                    e.g. -script=sim/scenarios/x.txt -lcd-png=sim/out/final.png
 #                                    PNGs written under sim/out/ appear on the host there.
 #                                    The console (USB CDC stand-in) is a pty inside the container;
@@ -27,7 +31,27 @@ dock() {
     docker run --rm -v "$VOLUME:/ws" -v "$ROOT:/ws/app" "$@"
 }
 
+DISPLAY_MODE=wire
+
+take_display() {
+    REST=()
+    for a in "$@"; do
+        case "$a" in
+            --display=wire|--display=dbi) DISPLAY_MODE="${a#--display=}" ;;
+            *) REST+=("$a") ;;
+        esac
+    done
+    BUILD_DIR=build/sim
+    OVERLAYS=/ws/app/sim/boards/native_sim_native_64.overlay
+    if [[ "$DISPLAY_MODE" == dbi ]]; then
+        BUILD_DIR=build/sim-dbi
+        OVERLAYS="$OVERLAYS;/ws/app/sim/boards/display_dbi.overlay"
+    fi
+}
+
 cmd_build() {
+    take_display "$@"
+    set -- ${REST[@]+"${REST[@]}"}
     if [[ "${1:-}" == "--rebuild" ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
         docker build -f "$ROOT/Dockerfile.sim" -t "$IMAGE" "$ROOT"
     fi
@@ -47,15 +71,17 @@ cmd_build() {
             fi
         done
 
-        west build -b '"$BOARD"' -d app/build/sim app -- \
+        west build -b '"$BOARD"' -d app/'"$BUILD_DIR"' app -- \
             -DCONF_FILE="/ws/app/zephyr/prj.conf;/ws/app/sim/prj_sim.conf" \
             -DZEPHYR_EXTRA_MODULES=/ws/app/sim -DDTS_ROOT=/ws/app/zephyr \
-            -DEXTRA_DTC_OVERLAY_FILE=/ws/app/sim/boards/native_sim_native_64.overlay
+            -DEXTRA_DTC_OVERLAY_FILE="'"$OVERLAYS"'"
     '
     echo "Docker-heavy run: consider 'colima ssh -- sudo fstrim -v /mnt/lima-colima'"
 }
 
 cmd_run() {
+    take_display "$@"
+    set -- ${REST[@]+"${REST[@]}"}
     mkdir -p "$ROOT/sim/out"
     local stock="${SIM_CODEPLUG:-}" main_root args=("$@")
     if [[ -z "$stock" ]]; then
@@ -69,11 +95,11 @@ cmd_run() {
         args+=(-codeplug=sim/out/codeplug.bin)
     fi
     set -- "${args[@]}"
-    dock -t -w /ws/app "$IMAGE" build/sim/zephyr/zephyr.exe "$@"
+    dock -t -w /ws/app "$IMAGE" "$BUILD_DIR/zephyr/zephyr.exe" "$@"
 }
 
 case "${1:-}" in
     build) shift; cmd_build "$@" ;;
     run) shift; cmd_run "$@" ;;
-    *) echo "usage: $0 build [--rebuild] | run [args]" >&2; exit 2 ;;
+    *) echo "usage: $0 build [--rebuild] [--display=wire|dbi] | run [--display=wire|dbi] [args]" >&2; exit 2 ;;
 esac

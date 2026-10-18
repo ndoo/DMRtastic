@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2026 Andrew Yong <me@ndoo.sg>
+ * SPDX-License-Identifier: MIT
+ *
+ * Replaces the GPIO-driven LCD bus with an API-level MIPI DBI model for fast
+ * runs. Applied after native_sim_native_64.overlay.
+ */
+
+&lcd_mipi_dbi {
+	compatible = "dmrtastic,sim-mipi-dbi";
+	/delete-property/ dc-gpios;
+	/delete-property/ reset-gpios;
+	/delete-property/ wr-gpios;
+	/delete-property/ rd-gpios;
+	/delete-property/ cs-gpios;
+	/delete-property/ data-gpios;
+};

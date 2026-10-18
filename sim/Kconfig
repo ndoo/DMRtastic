@@ -58,3 +58,9 @@ config SIM_CDC_UART
 	default y
 	depends on DT_HAS_ZEPHYR_CDC_ACM_UART_ENABLED && !USBD_CDC_ACM_CLASS
 	depends on SERIAL
+
+config SIM_MIPI_DBI
+	bool "API-level MIPI DBI model"
+	default y
+	depends on SIM_LCD
+	depends on DT_HAS_DMRTASTIC_SIM_MIPI_DBI_ENABLED
