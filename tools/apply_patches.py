@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 FRAMEWORK_DIR = os.path.expanduser("~/.platformio/packages/framework-zephyr")
-EXPECTED_VERSION = "3.40400.260428"
+EXPECTED_VERSION = "3.40401.260618"
 
 
 def _get_patches_dir():
@@ -40,9 +40,13 @@ def check_version():
         sys.exit(1)
 
     if version != EXPECTED_VERSION:
-        print(f"WARNING: framework-zephyr is {version}, patches target {EXPECTED_VERSION}")
+        print(
+            f"WARNING: framework-zephyr is {version}, patches target {EXPECTED_VERSION}"
+        )
         print("         Patches may not apply cleanly.")
-        print("         To reset: rm -rf ~/.platformio/packages/framework-zephyr && pio run")
+        print(
+            "         To reset: rm -rf ~/.platformio/packages/framework-zephyr && pio run"
+        )
 
 
 def is_applied(patch_path):
@@ -100,7 +104,9 @@ def apply_patch(patch_path):
     with open(patch_path) as f:
         r = subprocess.run(
             ["patch", "-d", FRAMEWORK_DIR, "-p1", "--forward", "-l"],
-            stdin=f, capture_output=True, text=True,
+            stdin=f,
+            capture_output=True,
+            text=True,
         )
     if r.returncode == 0:
         print(f"  ok    {name}")
